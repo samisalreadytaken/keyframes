@@ -1,0 +1,7 @@
+"sprite"
+{
+	"$basetexture" "keyframes/kf_circle_orange"
+	"$spriteorigin" "[ 0.50 0.50 ]"
+	"$spriteorientation" "vp_parallel"
+	"$ignorez"     "1"
+}

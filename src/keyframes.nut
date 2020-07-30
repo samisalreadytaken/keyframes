@@ -1,19 +1,14 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.1.9 --------------------------------------------------------------
+//- v1.1.10 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_interp");
 
-// don't overwrite
 if(!("_KF_"in getroottable()))
-	::_KF_ <- { _VER_ = "1.1.9" };;
+	::_KF_ <- { _VER_ = "1.1.10" };;
 
-// Run the script in the scope of _KF_
-// when this is uncommented (along with the call in the end),
-// all _KF_ mentions can be removed and replaced with 'this'.
-// This does not change any functionality.
-// local __init__ = function(){
+local __init__ = function(){
 
 class::V
 {
@@ -64,18 +59,19 @@ SendToConsole("clear;script _KF_.PostSpawn()");
 
 VS.GetLocalPlayer();
 
-// don't overwrite
-if( !("data_pos_kf" in _KF_) )
+local FTIME = 0.015625;
+local flShowTime = FrameTime()*6;
+local VEC_MAX = Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
+local EF =
 {
-	_KF_.FTIME <- 0.015625;
+	ON  = (1<<4)|(1<<6)|(1<<3)|0,
+	OFF = (1<<4)|(1<<6)|(1<<3)|(1<<5)
+}
 
-	_KF_.EF <-
-	{
-		ON  = 88, // (1<<4)|(1<<6)|(1<<3)|0
-		OFF = 120 // (1<<4)|(1<<6)|(1<<3)|(1<<5)
-	}
-
-	_KF_._Compile <- delegate _KF_ :
+// don't overwrite
+if( !("_Compile" in this) )
+{
+	_Compile <- delegate this :
 	{
 		RTIME = 0.0,
 		_CLI = 0,
@@ -95,7 +91,7 @@ if( !("data_pos_kf" in _KF_) )
 		}
 	}
 
-	_KF_._Save <- delegate _KF_ :
+	_Save <- delegate this :
 	{
 		_LIM = 0,
 		_STP = 0,
@@ -108,112 +104,112 @@ if( !("data_pos_kf" in _KF_) )
 		data_ang_save = null,
 	}
 
-	_KF_.data_pos_kf <- [];
-	_KF_.data_ang_kf <- [];
-	_KF_.data_quat_kf <- [];
-	_KF_.data_fov_kf <- [];
-	_KF_.data_pos_comp <- [];
-	_KF_.data_ang_comp <- [];
-	_KF_.data_fov_comp <- [];
-	_KF_.list_last_replace <- [];
-	_KF_.list_last_remove <- [];
+	data_pos_kf <- [];
+	data_ang_kf <- [];
+	data_quat_kf <- [];
+	data_fov_kf <- [];
+	data_pos_comp <- [];
+	data_ang_comp <- [];
+	data_fov_comp <- [];
+	list_last_replace <- [];
+	list_last_remove <- [];
 
-	_KF_.bStartedPending <- false;
-	_KF_.bInterpModeAng <- true;
-	_KF_.nSelectedKeyframe <- -1;
-	_KF_.flInterpResolution <- 0.01;
-	_KF_.nDrawResolution <- 25;
-	_KF_.nCurrKeyframe <- 0;
-	_KF_.bShowPath <- true;
-	_KF_.bShowKeys <- true;
-	_KF_.bSeeing <- false;
-	_KF_.IN_ROLL_R <- false;
-	_KF_.IN_ROLL_L <- false;
-	_KF_.IN_FOV_I <- false;
-	_KF_.IN_FOV_O <- false;
-	_KF_.__STP <- floor(1.0/_KF_.flInterpResolution);
-	_KF_.iFOV <- 90;
-	_KF_.flTimeShow <- FrameTime()*6;
-	_KF_.qKeyLast <- null;
-	_KF_.VEC_MAX <- Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
-	_KF_.Msg <- ::printl;
-};;
+	bStartedPending <- false;
+	bInterpModeAng <- true;
+	nSelectedKeyframe <- -1;
+	flInterpResolution <- 0.01;
+	nDrawResolution <- 25;
+	nCurrKeyframe <- 0;
+	bShowPath <- true;
+	bShowKeys <- true;
+	bSeeing <- false;
+	IN_ROLL_R <- false;
+	IN_ROLL_L <- false;
+	IN_FOV_I <- false;
+	IN_FOV_O <- false;
+	__STP <- floor(1.0/flInterpResolution);
+	iFOV <- 90;
+	vLastQuatKey <- null;
+	Msg <- ::printl;
+};
 
 if( !("HPlayerEye" in getroottable()) )
 	::HPlayerEye <- VS.CreateMeasure(HPlayer.GetName(),null,true);;
 
-if( !("hThinkSet" in _KF_) )
+if( !("hThinkSet" in this) )
 {
 	// holds playback status
-	_KF_.hThinkSet <- VS.Timer(true,_KF_.FTIME,null,null,false,true).weakref();
+	hThinkSet <- VS.Timer(true,FTIME,null,null,false,true).weakref();
 
 	// holds edit mode status
-	_KF_.hThinkEdit <- VS.Timer(true,_KF_.flTimeShow-FrameTime(),null,null,false,true).weakref();
+	hThinkEdit <- VS.Timer(true,flShowTime-FrameTime(),null,null,false,true).weakref();
 
-	_KF_.hThinkKeys <- VS.Timer(true,FrameTime()*2.5,null,null,false,true).weakref();
+	hThinkKeys <- VS.Timer(true,FrameTime()*2.5,null,null,false,true).weakref();
 
-	_KF_.hGameText <- VS.CreateEntity("game_text",
+	hGameText <- VS.CreateEntity("game_text",
 	{
 		channel = 1,
 		color = Vector(255,138,0),
-		holdtime = _KF_.flTimeShow,
+		holdtime = flShowTime,
 		x = 0.475,
 		y = 0.55
 	},true).weakref();
 
-	_KF_.hGameText2 <- VS.CreateEntity("game_text",
+	hGameText2 <- VS.CreateEntity("game_text",
 	{
 		channel = 2,
 		color = Vector(255,138,0),
-		holdtime = _KF_.flTimeShow,
+		holdtime = flShowTime,
 		x = 0.56,
 		y = 0.485
 	},true).weakref();
 
-	_KF_.hHudHint <- VS.CreateEntity("env_hudhint",null,true).weakref();
+	hHudHint <- VS.CreateEntity("env_hudhint",null,true).weakref();
 
 	// holds compile status
-	_KF_.hCam <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
+	hCam <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
 
 	// holds player noclip status
-	_KF_.hListener <- VS.CreateEntity("game_ui",{ spawnflags = 1<<7, fieldofview = -1.0 },true).weakref();
+	hListener <- VS.CreateEntity("game_ui",{ spawnflags = 1<<7, fieldofview = -1.0 },true).weakref();
 
-	VS.AddOutput(_KF_.hListener, "UnpressedAttack",  null);
-	VS.AddOutput(_KF_.hListener, "UnpressedAttack2", null);
+	VS.AddOutput(hListener, "UnpressedAttack",  null);
+	VS.AddOutput(hListener, "UnpressedAttack2", null);
 
 	PrecacheModel("keyframes/kf_circle_orange.vmt");
 
-	_KF_.hKeySprite <- VS.CreateEntity("env_sprite",
+	hKeySprite <- VS.CreateEntity("env_sprite",
 	{
 		rendermode = 8, // only 8 works when spawned through script, don't ask why
 		glowproxysize = 64.0, // MAX_GLOW_PROXY_SIZE
-		effects = _KF_.EF.OFF
+		effects = EF.OFF
 	},true).weakref();
 
-	_KF_.hKeySprite.SetModel("keyframes/kf_circle_orange.vmt");
+	hKeySprite.SetModel("keyframes/kf_circle_orange.vmt");
 
 //--------------------------------------------------------
 
-	local sc = _KF_.hThinkSet.GetScriptScope();
-	sc.cam <- _KF_.hCam.weakref();
-	sc.pos <- _KF_.data_pos_comp.weakref();
-	sc.ang <- _KF_.data_ang_comp.weakref();
-	sc.fov <- _KF_.data_fov_comp.weakref();
+	local sc = hThinkSet.GetScriptScope();
+	sc.cam <- hCam.weakref();
+	sc.pos <- data_pos_comp.weakref();
+	sc.ang <- data_ang_comp.weakref();
+	sc.fov <- data_fov_comp.weakref();
 	sc.idx <- 0;
 	sc.lim <- 0;
-};;
+};
+
+local strLoading;
 
 // build loading string
-if( !("strLoading" in _KF_) )
+if(1)
 {
 	local i1 = -1,
-		  i2 = 0,
-		  d = "●",
-		  b = " ",
-		  a = array(64,b);
+		  i2 = 0;
+	local d = "●",
+		  b = " ";
+	local a = array(64,b);
 
-	_KF_.nIdxLoading <- 0;
-	_KF_.strLoading <- [];
+	nIdxLoading <- 0;
+	strLoading = [];
 
 	for( local i = 0; i < 64; i++ )
 	{
@@ -229,9 +225,9 @@ if( !("strLoading" in _KF_) )
 
 		foreach(s in a) t += s;
 
-		_KF_.strLoading.append(t);
+		strLoading.append(t);
 	}
-};;
+};
 
 // load materials
 DebugDrawLine(Vector(),Vector(1,1,1),0,0,0,true,1);
@@ -239,30 +235,41 @@ DebugDrawBox(Vector(),Vector(),Vector(1,1,1),0,0,0,254,1);
 
 //--------------------------------------------------------------
 
-function _KF_::SetAngles(h,v) return h.SetAngles(v.x,v.y,v.z);
-function _KF_::PlaySound(s) return ::HPlayer.EmitSound(s);
-function _KF_::Hint(s) return ::VS.ShowHudHint(hHudHint, ::HPlayer, s);
+local hCam = hCam;
+function SetAngles(v):(hCam)
+{
+	return hCam.SetAngles(v.x,v.y,v.z);
+}
 
-function _KF_::Error(s)
+function PlaySound(s) return ::HPlayer.EmitSound(s);
+
+local ShowHudHint = VS.ShowHudHint;
+local hHudHint = hHudHint;
+function Hint(s):(ShowHudHint,hHudHint)
+{
+	return ShowHudHint(hHudHint, ::HPlayer, s);
+}
+
+function Error(s)
 {
 	Msg(s);
 	PlaySound("Bot.Stuck2");
 }
 
-function _KF_::MsgFail(s)
+function MsgFail(s)
 {
 	Msg(s);
 	// PlaySound("Player.WeaponSelected");
 	PlaySound("UIPanorama.buymenu_failure");
 }
 
-function _KF_::MsgHint(s)
+function MsgHint(s)
 {
 	Msg(s);
 	Hint(s);
 }
 
-//function _KF_::DrawOverlay(i)
+//function DrawOverlay(i)
 //{
 //	if( i == 0 ) return::SendToConsole("r_screenoverlay\"\"");
 //	if( i == 1 ) return::SendToConsole("r_screenoverlay\"keyframes/kf_dot_orange\"");
@@ -271,7 +278,7 @@ function _KF_::MsgHint(s)
 
 // TODO: cleanup
 // Process large data by splitting it into chunks, recursively process the chunkss
-function _KF_::load(i)
+function load(i)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot load file while compiling!");
@@ -324,11 +331,10 @@ function _KF_::load(i)
 	return __load();
 }
 
-function _KF_::__load()
+function __load():(FTIME)
 {
 	if( "pos" in data_load_input )
 	{
-		// if(!(_IDX % 25))
 		::print(".");
 
 		for( local i = _IDX; i < _CMX; i++ )
@@ -426,7 +432,7 @@ function _KF_::__load()
 //--------------------------------------------------------------
 
 // see mode listen WASD
-function _KF_::ListenKeys(i)
+function ListenKeys(i)
 {
 	if(i)
 	{
@@ -473,7 +479,7 @@ function _KF_::ListenKeys(i)
 }
 
 // default listen MOUSE1, MOUSE2
-function _KF_::ListenMouse(i)
+function ListenMouse(i)
 {
 	if(i)
 	{
@@ -489,17 +495,17 @@ function _KF_::ListenMouse(i)
 	};
 }
 
-VS.AddOutput(_KF_.hListener, "PressedMoveRight",  "_KF_.KEY_ROLL_R(1)");
-VS.AddOutput(_KF_.hListener, "UnpressedMoveRight","_KF_.KEY_ROLL_R(0)");
-VS.AddOutput(_KF_.hListener, "PressedMoveLeft",   "_KF_.KEY_ROLL_L(1)");
-VS.AddOutput(_KF_.hListener, "UnpressedMoveLeft", "_KF_.KEY_ROLL_L(0)");
-VS.AddOutput(_KF_.hListener, "PressedForward",    "_KF_.KEY_FOV_I(1)");
-VS.AddOutput(_KF_.hListener, "UnpressedForward",  "_KF_.KEY_FOV_I(0)");
-VS.AddOutput(_KF_.hListener, "PressedBack",       "_KF_.KEY_FOV_O(1)");
-VS.AddOutput(_KF_.hListener, "UnpressedBack",     "_KF_.KEY_FOV_O(0)");
+VS.AddOutput(hListener, "PressedMoveRight",  "_KF_.KEY_ROLL_R(1)");
+VS.AddOutput(hListener, "UnpressedMoveRight","_KF_.KEY_ROLL_R(0)");
+VS.AddOutput(hListener, "PressedMoveLeft",   "_KF_.KEY_ROLL_L(1)");
+VS.AddOutput(hListener, "UnpressedMoveLeft", "_KF_.KEY_ROLL_L(0)");
+VS.AddOutput(hListener, "PressedForward",    "_KF_.KEY_FOV_I(1)");
+VS.AddOutput(hListener, "UnpressedForward",  "_KF_.KEY_FOV_I(0)");
+VS.AddOutput(hListener, "PressedBack",       "_KF_.KEY_FOV_O(1)");
+VS.AddOutput(hListener, "UnpressedBack",     "_KF_.KEY_FOV_O(0)");
 
 // +use to see
-VS.AddOutput(_KF_.hListener, "PlayerOff", function()
+VS.AddOutput(hListener, "PlayerOff", function()
 {
 	SeeKeyframe();
 
@@ -510,52 +516,52 @@ VS.AddOutput(_KF_.hListener, "PlayerOff", function()
 	IN_ROLL_L = false;
 
 	::EntFireByHandle(hListener,"activate","",0,::HPlayer)
-},_KF_);
+},this);
 
 //--------------------------------------------------------------
 
 // Think keys roll
-function _KF_::KEY_ThinkRoll()
+function KEY_ThinkRoll()
 {
 	if( IN_ROLL_R )
 	{
-		qKeyLast.z = ::clamp(::floor(qKeyLast.z)+4, -180, 180);
-		SetAngles(hCam, qKeyLast);
-		Hint("Roll "+qKeyLast.z);
+		vLastQuatKey.z = ::clamp(::floor(vLastQuatKey.z)+4, -180, 180);
+		SetAngles(vLastQuatKey);
+		Hint("Roll "+vLastQuatKey.z);
 	}
 	else if( IN_ROLL_L )
 	{
-		qKeyLast.z = ::clamp(::floor(qKeyLast.z)-4, -180, 180);
-		SetAngles(hCam, qKeyLast);
-		Hint("Roll "+qKeyLast.z);
+		vLastQuatKey.z = ::clamp(::floor(vLastQuatKey.z)-4, -180, 180);
+		SetAngles(vLastQuatKey);
+		Hint("Roll "+vLastQuatKey.z);
 	};;
 
 	PlaySound("UIPanorama.store_item_rollover");
 }
 
-// Think keys fov
-function _KF_::KEY_ThinkFOV()
-{
-	local f = FrameTime()*6;
+local fFovRate = FrameTime()*6;
 
+// Think keys fov
+function KEY_ThinkFOV():(fFovRate)
+{
 	if( IN_FOV_I )
 	{
 		iFOV = ::clamp(iFOV-2,1,179);
 		Hint("FOV "+iFOV);
-		hCam.SetFov(iFOV,f);
+		hCam.SetFov(iFOV,fFovRate);
 	}
 	else if( IN_FOV_O )
 	{
 		iFOV = ::clamp(iFOV+2,1,179);
 		Hint("FOV "+iFOV);
-		hCam.SetFov(iFOV,f);
+		hCam.SetFov(iFOV,fFovRate);
 	};;
 
 	PlaySound("UIPanorama.store_item_rollover");
 }
 
 // roll clockwise
-function _KF_::KEY_ROLL_R(i)
+function KEY_ROLL_R(i)
 {
 	if(i)
 	{
@@ -563,7 +569,7 @@ function _KF_::KEY_ROLL_R(i)
 			return MsgFail("You need to be in see mode to use the key controls.");
 
 		::VS.OnTimer(hThinkKeys,KEY_ThinkRoll);
-		qKeyLast = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
+		vLastQuatKey = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
 
 		IN_ROLL_R = true;
 		::EntFireByHandle(hThinkKeys, "enable");
@@ -576,12 +582,12 @@ function _KF_::KEY_ROLL_R(i)
 		::EntFireByHandle(hThinkKeys, "disable");
 
 		// save last set data
-		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(qKeyLast,::Quaternion());
+		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(vLastQuatKey,::Quaternion());
 	};
 }
 
 // roll counter-clockwise
-function _KF_::KEY_ROLL_L(i)
+function KEY_ROLL_L(i)
 {
 	if(i)
 	{
@@ -589,7 +595,7 @@ function _KF_::KEY_ROLL_L(i)
 			return MsgFail("You need to be in see mode to use the key controls.");
 
 		::VS.OnTimer(hThinkKeys,KEY_ThinkRoll);
-		qKeyLast = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
+		vLastQuatKey = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
 
 		IN_ROLL_L = true;
 		::EntFireByHandle(hThinkKeys, "enable");
@@ -602,12 +608,12 @@ function _KF_::KEY_ROLL_L(i)
 		::EntFireByHandle(hThinkKeys, "disable");
 
 		// save last set data
-		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(qKeyLast,::Quaternion());
+		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(vLastQuatKey,::Quaternion());
 	};
 }
 
 // fov in
-function _KF_::KEY_FOV_I(i)
+function KEY_FOV_I(i)
 {
 	if(i)
 	{
@@ -642,7 +648,7 @@ function _KF_::KEY_FOV_I(i)
 }
 
 // fov out
-function _KF_::KEY_FOV_O(i)
+function KEY_FOV_O(i)
 {
 	if(i)
 	{
@@ -678,7 +684,7 @@ function _KF_::KEY_FOV_O(i)
 
 //--------------------------------------------------------------
 
-function _KF_::ShowToggle(t)
+function ShowToggle(t)
 {
 	// kf_showpath
 	if(t)
@@ -698,31 +704,31 @@ function _KF_::ShowToggle(t)
 }
 
 // kf_edit
-function _KF_::ToggleEditMode()
+function ToggleEditMode():(EF)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot "+(hThinkEdit.GetTeam()?"disable":"enable")+" edit mode while compiling!");
 
-	local a,b;
+	// local a,b;
 
 	if( !data_pos_kf.len() )
 	{
-		a = true;
+		// a = true;
 		data_pos_kf.clear();
 		data_ang_kf.clear();
-		Msg("No keyframes found.");
+		// Msg("No keyframes found.");
 	};
 
 	if( !data_pos_comp.len() )
 	{
-		b = true;
+		// b = true;
 		data_pos_comp.clear();
 		data_ang_comp.clear();
-		Msg("No path data found.");
+		// Msg("No path data found.");
 	};
 
-	if( a&&b )
-		return MsgFail("Cannot enable the edit mode!");
+	// if( a&&b )
+	// 	return MsgFail("Cannot enable the edit mode!");
 
 	// toggle
 	hThinkEdit.SetTeam((!hThinkEdit.GetTeam()).tointeger());
@@ -763,7 +769,7 @@ function _KF_::ToggleEditMode()
 }
 
 // kf_select
-function _KF_::SelectKeyframe()
+function SelectKeyframe()
 {
 	if( !hThinkEdit.GetTeam() )
 		return MsgFail("You need to be in edit mode to select.");
@@ -790,7 +796,7 @@ function _KF_::SelectKeyframe()
 }
 
 // kf_next
-function _KF_::NextKeyframe()
+function NextKeyframe()
 {
 	if( nSelectedKeyframe == -1 )
 		return MsgFail("You need to have a key selected to use kf_next.");
@@ -809,7 +815,7 @@ function _KF_::NextKeyframe()
 }
 
 // kf_prev
-function _KF_::PrevKeyframe()
+function PrevKeyframe()
 {
 	if( nSelectedKeyframe == -1 )
 		return MsgFail("You need to have a key selected to use kf_prev.");
@@ -837,7 +843,7 @@ function _KF_::PrevKeyframe()
 // kf_see
 // if i == true, unsee. NO error and safety checks
 // TODO: a better method?
-function _KF_::SeeKeyframe(i=0)
+function SeeKeyframe(i=0):(EF)
 {
 	if(i)
 	{
@@ -879,7 +885,7 @@ function _KF_::SeeKeyframe(i=0)
 			hCam.SetFov(v[1],0.25);
 
 		hCam.SetOrigin(data_pos_kf[nSelectedKeyframe]);
-		SetAngles(hCam, VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
+		SetAngles(VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
 		::EntFireByHandle(hCam, "enable", "", 0, HPlayer);
 
 		ListenKeys(1);
@@ -907,80 +913,82 @@ function _KF_::SeeKeyframe(i=0)
 	PlaySound("UIPanorama.container_countdown");
 }
 
-// constant values that are called very often - in loops
-local vi = Vector(-8,-8,-8),
-      vx = Vector(8,8,8),
-      DrawBox = DebugDrawBox;
+// constant values
+local VEC_MINS = Vector(-8,-8,-8),
+      VEC_MAXS = Vector(8,8,8);
+local DebugDrawBox = ::DebugDrawBox,
+      DebugDrawLine = ::DebugDrawLine,
+      EntFireByHandle = ::EntFireByHandle;
 
 // Think UI
-VS.OnTimer(_KF_.hThinkEdit,function():(vi,vx,DrawBox)
+VS.OnTimer(hThinkEdit,function():(flShowTime,VEC_MINS,VEC_MAXS,DebugDrawBox,DebugDrawLine,EntFireByHandle)
 {
-	local keys = data_pos_kf,
-	      time = flTimeShow;
+	local HPlayer = ::HPlayer;
+	local keys = data_pos_kf;
 
 	if(keys.len())
 	{
-		local h = "";
+		local strHold = "";
 
 		// not selected any key
 		if( nSelectedKeyframe == -1 )
 		{
-			local k = keys.len()-1,
-			      b = 0.9, // threshold
-			      E = ::HPlayer.EyePosition(),
-			      D = ::HPlayerEye.GetForwardVector();
+			local nCurr = keys.len()-1;
+			local fThreshold = 0.9;
+			local vEyePos = HPlayer.EyePosition();
+			local vEyeDir = ::HPlayerEye.GetForwardVector();
 
 			// VS.FindEntityNearestFacing
 			foreach( i, v in keys )
 			{
-				local d = v - E;
-				d.Norm();
-				local d = D.Dot(d);
+				local dir = v - vEyePos;
+				dir.Norm();
+				local dot = vEyeDir.Dot(dir);
 
-				if( d > b )
+				if( dot > fThreshold )
 				{
-					k = i;
-					b = d;
+					nCurr = i;
+					fThreshold = dot;
 				};
 
 				if( bShowKeys )
-					DrawBox(v, vi, vx, 255, 0, 0, 0, time);
+					DebugDrawBox(v, VEC_MINS, VEC_MAXS, 255, 0, 0, 0, flShowTime);
 			}
 
-			nCurrKeyframe = k;
+			nCurrKeyframe = nCurr;
 		}
 		else if( bShowKeys )
 		{
-			h = " (HOLD)";
+			strHold = " (HOLD)";
 
 			foreach( i, v in keys )
-				DrawBox(v, vi, vx, 255, 0, 0, 0, time);
+				DebugDrawBox(v, VEC_MINS, VEC_MAXS, 255, 0, 0, 0, flShowTime);
 		};;
 
 		// show fov
 		foreach( v in data_fov_kf ) if( v[0] == nCurrKeyframe )
 			hGameText2.__KeyValueFromString("message", "FOV: " + v[1]);
 
-		hGameText.__KeyValueFromString("message", "KEY: " + nCurrKeyframe + h);
-		::EntFireByHandle(hGameText, "display", "", 0, ::HPlayer);
-		::EntFireByHandle(hGameText2, "display", "", 0, ::HPlayer);
-		::EntFireByHandle(hGameText2, "settext", "", 0, ::HPlayer);
+		hGameText.__KeyValueFromString("message", "KEY: " + nCurrKeyframe + strHold);
+		EntFireByHandle(hGameText, "display", "", 0, HPlayer);
+		EntFireByHandle(hGameText2, "display", "", 0, HPlayer);
+		EntFireByHandle(hGameText2, "settext", "", 0, HPlayer);
 
-		local k = keys[nCurrKeyframe];
+		local vKeyPos = keys[nCurrKeyframe];
 
 		// selected key
-		DrawBox(k, vi, vx, 255, 138, 0, 255, time);
-		hKeySprite.SetOrigin(k);
+		DebugDrawBox(vKeyPos, VEC_MINS, VEC_MAXS, 255, 138, 0, 255, flShowTime);
+		hKeySprite.SetOrigin(vKeyPos);
 
 //		if( bMoveMode )
 //		{
 //			hKeySprite.SetOrigin(Vector());
-//			hHelperTranslate.SetOrigin(k);
+//			hHelperTranslate.SetOrigin(vKeyPos);
 //
 //			local ORIG = HPlayer.EyePosition();
 //			local tr = VS.TraceDir(ORIG, HPlayerEye.GetForwardVector()).Ray();
 //
-//			local origX = k; //+ Vector(32,0,0);
+//			local origX = vKeyPos; //+ Vector(32,0,0);
 //			local minsX = Vector(-54,-3,-3);
 //			local maxsX = Vector(54,3,3);
 //
@@ -988,12 +996,12 @@ VS.OnTimer(_KF_.hThinkEdit,function():(vi,vx,DrawBox)
 //			{
 //				Hint("X")
 //
-//				DebugDrawLine(k, k - Vector(-128,0,0), 255, 255, 255, true, time);
-//				DebugDrawBox(origX, minsX, maxsX, 255, 0, 0, 154, time);
+//				DebugDrawLine(vKeyPos, vKeyPos - Vector(-128,0,0), 255, 255, 255, true, flShowTime);
+//				DebugDrawBox(origX, minsX, maxsX, 255, 0, 0, 154, flShowTime);
 //			}
 //			else
 //			{
-//				local origY = k; //+ Vector(0,32,0);
+//				local origY = vKeyPos; //+ Vector(0,32,0);
 //				local minsY = Vector(-3,-54,-3);
 //				local maxsY = Vector(3,54,3);
 //
@@ -1001,12 +1009,12 @@ VS.OnTimer(_KF_.hThinkEdit,function():(vi,vx,DrawBox)
 //				{
 //					Hint("Y")
 //
-//					DebugDrawLine(k, k - Vector(0,-128,0), 255, 255, 255, true, time);
-//					DebugDrawBox(origY, minsY, maxsY, 0, 255, 0, 154, time);
+//					DebugDrawLine(vKeyPos, vKeyPos - Vector(0,-128,0), 255, 255, 255, true, flShowTime);
+//					DebugDrawBox(origY, minsY, maxsY, 0, 255, 0, 154, flShowTime);
 //				}
 //				else
 //				{
-//					local origZ = k; //+ Vector(0,0,32);
+//					local origZ = vKeyPos; //+ Vector(0,0,32);
 //					local minsZ = Vector(-3,-3,-54);
 //					local maxsZ = Vector(3,3,54);
 //
@@ -1014,8 +1022,8 @@ VS.OnTimer(_KF_.hThinkEdit,function():(vi,vx,DrawBox)
 //					{
 //						Hint("Z")
 //
-//						DebugDrawLine(k, k + Vector(0,0,128),  255, 255, 255, true, time);
-//						DebugDrawBox(origZ, minsZ, maxsZ, 0, 0, 255, 127, time);
+//						DebugDrawLine(vKeyPos, vKeyPos + Vector(0,0,128),  255, 255, 255, true, flShowTime);
+//						DebugDrawBox(origZ, minsZ, maxsZ, 0, 0, 255, 127, flShowTime);
 //					};
 //				};
 //			};
@@ -1024,26 +1032,25 @@ VS.OnTimer(_KF_.hThinkEdit,function():(vi,vx,DrawBox)
 
 	if( bShowPath )
 	{
-		local Y = nDrawResolution,
-		      k = data_pos_comp,
-		      a = data_ang_comp,
-		      L = ::DebugDrawLine,
-		      A = ::VS.AngleVectors,
-		      n = data_pos_comp.len()-Y;
+		local pos = data_pos_comp,
+		      ang = data_ang_comp;
+		local res = nDrawResolution,
+		      len = pos.len()-res;
+		local ToVector = ::VS.AngleVectors;
 
-		for( local i = 0; i < n; i+=Y )
+		for( local i = 0; i < len; i+=res )
 		{
-			local p = k[i];
-			L(p, p + A(a[i]) * 16, 255, 128, 255, true, time);
-			L(p, k[i+Y], 138, 255, 0, true, time);
+			local pt = pos[i];
+			DebugDrawLine(pt, pt + ToVector(ang[i]) * 16, 255, 128, 255, true, flShowTime);
+			DebugDrawLine(pt, pos[i+res], 138, 255, 0, true, flShowTime);
 		}
 	};
-},_KF_);
+},this);
 
 //--------------------------------------------------------------
 
 // kf_replace
-function _KF_::ReplaceKeyframe()
+function ReplaceKeyframe()
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1078,7 +1085,7 @@ function _KF_::ReplaceKeyframe()
 }
 
 // kf_insert
-function _KF_::InsertKeyframe()
+function InsertKeyframe()
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1109,7 +1116,7 @@ function _KF_::InsertKeyframe()
 }
 
 // kf_remove
-function _KF_::RemoveKeyframe()
+function RemoveKeyframe():(VEC_MAX)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1166,7 +1173,7 @@ function _KF_::RemoveKeyframe()
 }
 
 // undolast
-function _KF_::UndoLast(t)
+function UndoLast(t)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1214,7 +1221,7 @@ function _KF_::UndoLast(t)
 }
 
 // kf_removefov
-function _KF_::RemoveFOV()
+function RemoveFOV()
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1239,7 +1246,7 @@ function _KF_::RemoveFOV()
 }
 
 // kf_add
-function _KF_::AddKeyframe()
+function AddKeyframe()
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1262,7 +1269,7 @@ function _KF_::AddKeyframe()
 }
 
 // kf_clear
-function _KF_::ClearKeyframes()
+function ClearKeyframes():(VEC_MAX)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1298,7 +1305,7 @@ function _KF_::ClearKeyframes()
 }
 
 // kf_mode_ang
-function _KF_::SetInterpMode(i)
+function SetInterpMode(i)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot change algorithm while compiling!");
@@ -1317,7 +1324,7 @@ function _KF_::SetInterpMode(i)
 //--------------------------------------------------------------
 
 // kf_compile
-function _KF_::Compile()
+function Compile():(VEC_MAX,FTIME,flShowTime)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Compilation in progress...");
@@ -1349,17 +1356,15 @@ function _KF_::Compile()
 	Msg("\nPreparing..." + "\nResolution          : " + flInterpResolution + "\nTime between 2 keys : "+(FTIME/flInterpResolution)+"s\nAngle algorithm     : "+(bInterpModeAng?"default":"stabilised")+"\n");
 	PlaySound("UIPanorama.container_countdown");
 
-	return::delay( "_KF_._Compile.__Compile()", flTimeShow+::FrameTime() );
+	return::delay( "_KF_._Compile.__Compile()", flShowTime+::FrameTime() );
 }
 
 // TODO: Implement consistent speed
-function _KF_::_Compile::__Compile()
+function _Compile::__Compile():(FTIME)
 {
 	// an alternative to inserting would be calculating the future length of
 	// the compiled data, and creating that sized empty arrays, and accessing those indices
 	// but I'm fine with inserting
-	// data_pos_comp = ::array(data_pos_kf.len());
-	// data_ang_comp = ::array(data_ang_kf.len());
 	data_pos_comp.clear();
 	data_ang_comp.clear();
 	data_pos_comp.resize(data_pos_kf.len());
@@ -1383,7 +1388,7 @@ function _KF_::_Compile::__Compile()
 	return::delay( "_KF_._Compile.__SplineOrigin()", RTIME );
 }
 
-function _KF_::_Compile::__SplineOrigin()
+function _Compile::__SplineOrigin():(strLoading)
 {
 	if(!(_IDX % 25)) ::print(".");
 
@@ -1391,15 +1396,15 @@ function _KF_::_Compile::__SplineOrigin()
 	nIdxLoading %= 63;
 	Hint(strLoading[++nIdxLoading]);
 
-	local s = Catmull_Rom_Spline,
-	      c = data_pos_kf,
-	      l = c.len()-3,
-	      k = data_pos_comp,
-	      v = ::Vector;
+	local Spline = Catmull_Rom_Spline,
+	      kf = data_pos_kf,
+	      len = kf.len()-3,
+	      comp = data_pos_comp,
+	      Vector = ::Vector;
 
 	for( local i,j = _IDX, f = flInterpResolution * _IDX; j < _CMX; ++j, f += flInterpResolution )
-		for( i = 0; i < l; ++i )
-			k.insert((j+2)+(i*(j+2)),s(c[i],c[i+1],c[i+2],c[i+3],f,v()));
+		for( i = 0; i < len; ++i )
+			comp.insert((j+2)+(i*(j+2)),Spline(kf[i],kf[i+1],kf[i+2],kf[i+3],f,Vector()));
 
 	_IDX += _STP;
 	_CMX = ::clamp(_CMX + _STP, 0, __STP);
@@ -1423,7 +1428,7 @@ function _KF_::_Compile::__SplineOrigin()
 	return::delay( "_KF_._Compile.__SplineOrigin()", RTIME );
 }
 
-function _KF_::_Compile::__SplineAngles()
+function _Compile::__SplineAngles():(strLoading)
 {
 	if(!(_IDX % 25)) ::print(".");
 
@@ -1433,32 +1438,32 @@ function _KF_::_Compile::__SplineAngles()
 
 	if( bInterpModeAng )
 	{
-		local a = QAngleNormalize,
-		      b = QuaternionAngles2,
-		      c = Catmull_Rom_SplineQ,
-		      q = data_quat_kf,
-		      l = q.len()-3,
-		      k = data_ang_comp,
-		      v = ::Vector,
-		      t = ::Quaternion;
+		local Norm = QAngleNormalize,
+		      ToQAngle = QuaternionAngles2,
+		      Spline = Catmull_Rom_SplineQ,
+		      kf = data_quat_kf,
+		      len = kf.len()-3,
+		      comp = data_ang_comp,
+		      Vector = ::Vector,
+		      Quaternion = ::Quaternion;
 
 		for( local i,j = _IDX, f = flInterpResolution * _IDX; j < _CMX; ++j, f += flInterpResolution )
-			for( i = 0; i < l; ++i )
-				k.insert((j+2)+(i*(j+2)),a(b(c(q[i],q[i+1],q[i+2],q[i+3],f,t()),v())));
+			for( i = 0; i < len; ++i )
+				comp.insert((j+2)+(i*(j+2)),Norm(ToQAngle(Spline(kf[i],kf[i+1],kf[i+2],kf[i+3],f,Quaternion()),Vector())));
 	}
 	else
 	{
-		local a = QAngleNormalize,
-		      b = VectorAngles,
-		      c = Catmull_Rom_Spline,
-		      e = data_ang_kf,
-		      l = e.len()-3,
-		      k = data_ang_comp,
-		      v = ::Vector;
+		local Norm = QAngleNormalize,
+		      ToQAngle = VectorAngles,
+		      Spline = Catmull_Rom_Spline,
+		      kf = data_ang_kf,
+		      len = kf.len()-3,
+		      comp = data_ang_comp,
+		      Vector = ::Vector;
 
 		for( local i,j = _IDX, f = flInterpResolution * _IDX; j < _CMX; ++j, f += flInterpResolution )
-			for( i = 0; i < l; ++i )
-				k.insert((j+2)+(i*(j+2)),a(b(c(e[i],e[i+1],e[i+2],e[i+3],f,v()))));
+			for( i = 0; i < len; ++i )
+				comp.insert((j+2)+(i*(j+2)),Norm(ToQAngle(Spline(kf[i],kf[i+1],kf[i+2],kf[i+3],f,Vector()))));
 	};
 
 	_IDX += _STP;
@@ -1483,7 +1488,7 @@ function _KF_::_Compile::__SplineAngles()
 	return::delay( "_KF_._Compile.__SplineAngles()", RTIME );
 }
 
-function _KF_::_Compile::__Clear()
+function _Compile::__Clear():(strLoading)
 {
 	if(!(_CLI % 175)) ::print(".");
 
@@ -1508,7 +1513,7 @@ function _KF_::_Compile::__Clear()
 	::delay( "print(\".\");_KF_._Compile.__CompileFOV();delay(\"_KF_._Compile.__Finish()\",_KF_._Compile.RTIME)", RTIME );
 }
 
-function _KF_::_Compile::__Finish()
+function _Compile::__Finish():(FTIME)
 {
 	RTIME = null;
 	_CLI = null;
@@ -1525,7 +1530,7 @@ function _KF_::_Compile::__Finish()
 	PlaySound("UIPanorama.container_countdown");
 }
 
-function _KF_::_Compile::__CompileFOV()
+function _Compile::__CompileFOV():(FTIME)
 {
 	local _f = data_fov_kf;
 
@@ -1550,9 +1555,9 @@ function _KF_::_Compile::__CompileFOV()
 	data_fov_comp.resize(_f.len()-1);
 
 	local i  = -1,
-	      t  = FTIME/flInterpResolution,
-	      _v = data_fov_comp,
 	      l  = _f.len()-1;
+	local t  = FTIME/flInterpResolution;
+	local _v = data_fov_comp;
 
 	while( l>++i )
 	{
@@ -1576,7 +1581,7 @@ function _KF_::_Compile::__CompileFOV()
 //--------------------------------------------------------------
 
 // (0)kf_save, (1)kf_savekeys
-function _KF_::Save( i = 0 )
+function Save( i = 0 )
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot save while compiling!");
@@ -1616,7 +1621,7 @@ function _KF_::Save( i = 0 )
 }
 
 // save run
-function _KF_::_Save::__Finish(i)
+function _Save::__Finish(i)
 {
 	local file = ::VS.Log.Run();
 	Msg("\n* "+(i?"Keyframe":"Path")+" data is exported: /csgo/"+file+".log\n");
@@ -1636,7 +1641,7 @@ function _KF_::_Save::__Finish(i)
 }
 
 // save pos
-function _KF_::_Save::__pos(i)
+function _Save::__pos(i):(FTIME)
 {
 	for( local i = _IDX; i < _CMX; i++ )
 		LOG.append(VecToString(data_pos_save[i],"V("));
@@ -1656,7 +1661,7 @@ function _KF_::_Save::__pos(i)
 }
 
 // save ang, quat, fov
-function _KF_::_Save::__ang(i)
+function _Save::__ang(i):(FTIME)
 {
 	for( local i = _IDX; i < _CMX; i++ )
 		LOG.append(VecToString(data_ang_save[i],"V("));
@@ -1722,7 +1727,7 @@ function _KF_::_Save::__ang(i)
 	return::delay( "_KF_._Save.__ang("+i+")", FTIME );
 }
 
-VS.OnTimer(_KF_.hThinkSet, function()
+VS.OnTimer(hThinkSet, function()
 {
 	cam.SetOrigin(pos[idx]);
 	local a = ang[idx];
@@ -1739,7 +1744,7 @@ VS.OnTimer(_KF_.hThinkSet, function()
 },null,true);
 
 // kf_play
-function _KF_::Play()
+function Play()
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot start playback while compiling!");
@@ -1776,7 +1781,7 @@ function _KF_::Play()
 			hCam.SetFov(s.fov[0][1],0);;
 
 	hCam.SetOrigin(s.pos[0]);
-	SetAngles(hCam,s.ang[0]);
+	SetAngles(s.ang[0]);
 	::EntFireByHandle(hCam, "enable", "", 0, ::HPlayer);
 	::EntFireByHandle(hThinkSet, "disable");
 
@@ -1792,7 +1797,7 @@ function _KF_::Play()
 }
 
 // kf_stop
-function _KF_::Stop()
+function Stop()
 {
 	if( !hThinkSet.GetTeam() )
 		return MsgFail("Playback is not running.");
@@ -1811,22 +1816,24 @@ function _KF_::Stop()
 //--------------------------------------------------------------
 
 // interp resolution
-function _KF_::res(f)
+function res(f):(FTIME)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot change resolution while compiling!");
 
+	f = f.tofloat();
+
 	if( f < 0.001 || f > 0.5 )
 		return MsgFail("Invalid resolution range. [0.001, 0.5]");
 
-	flInterpResolution = f.tofloat();
+	flInterpResolution = f;
 	__STP = floor(1.0/flInterpResolution);
 	Msg("Interpolation resolution set to: " + flInterpResolution);
 	Msg("Time between 2 keyframes: " + (FTIME/flInterpResolution) + " second(s)");
 	PlaySound("UIPanorama.container_countdown");
 }
 
-function _KF_::fov(x)
+function fov(x)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1862,7 +1869,7 @@ function _KF_::fov(x)
 	MsgHint("Set key #" + nCurrKeyframe + " FOV to " + x);
 }
 
-function _KF_::roll(v)
+function roll(v)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1884,24 +1891,24 @@ function _KF_::roll(v)
 		if( nSelectedKeyframe == -1 )
 			return Error("[ERROR] Assertion failed. Seeing while no key is selected.");
 
-		SetAngles(hCam, ::VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
+		SetAngles(::VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
 	};
 
 	MsgHint("Set key #" + nCurrKeyframe + " roll to " + v);
 	PlaySound("UIPanorama.container_countdown");
 }
 
-_KF_.__CompileFOV <- _KF_._Compile.__CompileFOV.bindenv(_KF_._Compile);
+__CompileFOV <- _Compile.__CompileFOV.bindenv(_Compile);
 
 // global bindings for easy use with 'script XX()'
-::roll <- _KF_.roll.bindenv(_KF_);
-::fov <- _KF_.fov.bindenv(_KF_);
-::res <- _KF_.res.bindenv(_KF_);
-::load <- _KF_.load.bindenv(_KF_);
+::roll <- roll.bindenv(this);
+::fov <- fov.bindenv(this);
+::res <- res.bindenv(this);
+::load <- load.bindenv(this);
 
 //--------------------------------------------------------------
 
-function _KF_::PostSpawn()
+function PostSpawn()
 {
 	if( ::HPlayer.GetTeam() != 2 && ::HPlayer.GetTeam() != 3 )
 		::HPlayer.SetTeam(2);
@@ -1931,23 +1938,23 @@ function _KF_::PostSpawn()
 	delete PostSpawn;
 }
 
-function _KF_::WelcomeMsg()
+function WelcomeMsg()
 {
 	Msg("\n\n\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected key\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected key\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected key\nkf_replace            : Replace the selected key\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a key, select the next one\nkf_prev               : While holding a key, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript fov(val)       : Set FOV data on the selected key\nscript roll(val)      : Set camera roll on the selected key\n                      :\nscript load(input)    : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
 
-	local T = ::VS.GetTickrate();
+	local flTickrate = ::VS.GetTickrate();
 
-	if( !::VS.IsInteger(128.0/T) )
+	if( !::VS.IsInteger(128.0/flTickrate) )
 	{
-		Msg("[!] Invalid tickrate ( " + T + " )! Only 128 and 64 ticks are supported.");
-		::Chat(txt.red+"[!] "+txt.white+"Invalid tickrate ( " +txt.yellow+ T +txt.white+" )! Only 128 and 64 ticks are supported.");
+		Msg("[!] Invalid tickrate ( " + flTickrate + " )! Only 128 and 64 ticks are supported.");
+		::Chat(txt.red+"[!] "+txt.white+"Invalid tickrate ( " +txt.yellow+ flTickrate +txt.white+" )! Only 128 and 64 ticks are supported.");
 	};
 
 	delete WelcomeMsg;
 }
 
 // kf_cmd
-function _KF_::PrintCmd()
+function PrintCmd()
 {
 //	Msg(@"
 //
@@ -1999,4 +2006,4 @@ function _KF_::PrintCmd()
 	Msg("\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected key\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected key\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected key\nkf_replace            : Replace the selected key\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a key, select the next one\nkf_prev               : While holding a key, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript fov(val)       : Set FOV data on the selected key\nscript roll(val)      : Set camera roll on the selected key\n                      :\nscript load(input)    : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
 }
 
-// }.call(_KF_);
+}.call(_KF_);

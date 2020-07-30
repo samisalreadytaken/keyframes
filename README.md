@@ -5,13 +5,13 @@ Create smooth camera paths live in-game, in mere seconds.
 
 You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.9-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.1.10-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 ## Installation
 Merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
 
-This only adds 6 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. It is VAC safe, and you can only use this script on your own server.
+This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. It is VAC safe, and you can only use this script on your own server.
 
 ### Downloading
 **Method 1.**
@@ -95,6 +95,9 @@ Position and angle values are interpolated using Catmull-Rom splines between two
 FOV values are linearly interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. Thus, the FOV data on the very first (KEY 0) keyframe is discarded. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
 
 Modifying the position or angle data, including camera roll, of any key requires compilation before seeing the changes in playback. Whereas for FOV datas, the user can see their changes in playback without having to recompile.
+
+## Changelog
+See [CHANGELOG.txt](CHANGELOG.txt)
 
 ## License
 You are free to use, modify and share this script under the terms of the GNU GPLv2.0 license. In short, you must keep the copyright notice, and make your modifications public under the same license if you distribute it.

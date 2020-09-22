@@ -1,50 +1,20 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.1.10 --------------------------------------------------------------
+//- v1.1.11 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_interp");
 
 if(!("_KF_"in getroottable()))
-	::_KF_ <- { _VER_ = "1.1.10" };;
+	::_KF_ <- { _VER_ = "1.1.11" };;
 
 local __init__ = function(){
 
-class::V
-{
-	constructor(_x=0,_y=0,_z=0)
-	{
-		x = _x;
-		y = _y;
-		z = _z;
-	}
+V <- ::Vector;
+Q <- ::Quaternion;
 
-	function V(dx=0,dy=0,dz=0)
-		return::Vector(x+dx,y+dy,z+dz);
-
-	x = 0.0;
-	y = 0.0;
-	z = 0.0;
-}
-
-class::Q
-{
-	constructor(_x=0,_y=0,_z=0,_w=0)
-	{
-		x = _x;
-		y = _y;
-		z = _z;
-		w = _w;
-	}
-
-	function V(dx=0,dy=0,dz=0,dw=0)
-		return::Quaternion(x+dx,y+dy,z+dz,w+dw);
-
-	x = 0.0;
-	y = 0.0;
-	z = 0.0;
-	w = 0.0;
-}
+::V <- V.weakref();
+::Q <- Q.weakref();
 
 try(IncludeScript("keyframes_data",getroottable()))
 catch(e){} // file does not exist
@@ -61,14 +31,13 @@ VS.GetLocalPlayer();
 
 local FTIME = 0.015625;
 local flShowTime = FrameTime()*6;
-local VEC_MAX = Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
+local MAX_COORD_VEC = Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
 local EF =
 {
 	ON  = (1<<4)|(1<<6)|(1<<3)|0,
 	OFF = (1<<4)|(1<<6)|(1<<3)|(1<<5)
 }
 
-// don't overwrite
 if( !("_Compile" in this) )
 {
 	_Compile <- delegate this :
@@ -134,7 +103,7 @@ if( !("_Compile" in this) )
 };
 
 if( !("HPlayerEye" in getroottable()) )
-	::HPlayerEye <- VS.CreateMeasure(HPlayer.GetName(),null,true);;
+	::HPlayerEye <- VS.CreateMeasure(HPlayer.GetName(),null,true);
 
 if( !("hThinkSet" in this) )
 {
@@ -241,7 +210,10 @@ function SetAngles(v):(hCam)
 	return hCam.SetAngles(v.x,v.y,v.z);
 }
 
-function PlaySound(s) return ::HPlayer.EmitSound(s);
+function PlaySound(s)
+{
+	return ::HPlayer.EmitSound(s);
+}
 
 local ShowHudHint = VS.ShowHudHint;
 local hHudHint = hHudHint;
@@ -338,7 +310,7 @@ function __load():(FTIME)
 		::print(".");
 
 		for( local i = _IDX; i < _CMX; i++ )
-			data_pos_load[i] = data_load_input["pos"][i].V();
+			data_pos_load[i] = data_load_input["pos"][i];
 
 		_IDX += _STP;
 		_CMX = ::clamp(_CMX + _STP, 0, _LIM);
@@ -363,7 +335,7 @@ function __load():(FTIME)
 		::print(".");
 
 		for( local i = _IDX; i < _CMX; i++ )
-			data_ang_load[i] = data_load_input["ang"][i].V();
+			data_ang_load[i] = data_load_input["ang"][i];
 
 		_IDX += _STP;
 		_CMX = ::clamp(_CMX + _STP, 0, _LIM);
@@ -388,7 +360,7 @@ function __load():(FTIME)
 		::print(".");
 
 		for( local i = _IDX; i < _CMX; i++ )
-			data_quat_load[i] = data_load_input["anq"][i].V();
+			data_quat_load[i] = data_load_input["anq"][i];
 
 		_IDX += _STP;
 		_CMX = ::clamp(_CMX + _STP, 0, _LIM);
@@ -468,7 +440,7 @@ function ListenKeys(i)
 		hListener.DisconnectOutput("PressedBack","PressedBack");
 		hListener.DisconnectOutput("UnpressedBack","UnpressedBack");
 
-		// continue previous state
+		// UNDONE: continue previous state
 		// ::HPlayer.__KeyValueFromInt("movetype",hListener.GetTeam()?8:2);
 
 		// just enable noclip
@@ -709,11 +681,8 @@ function ToggleEditMode():(EF)
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot "+(hThinkEdit.GetTeam()?"disable":"enable")+" edit mode while compiling!");
 
-	// local a,b;
-
 	if( !data_pos_kf.len() )
 	{
-		// a = true;
 		data_pos_kf.clear();
 		data_ang_kf.clear();
 		// Msg("No keyframes found.");
@@ -721,14 +690,10 @@ function ToggleEditMode():(EF)
 
 	if( !data_pos_comp.len() )
 	{
-		// b = true;
 		data_pos_comp.clear();
 		data_ang_comp.clear();
 		// Msg("No path data found.");
 	};
-
-	// if( a&&b )
-	// 	return MsgFail("Cannot enable the edit mode!");
 
 	// toggle
 	hThinkEdit.SetTeam((!hThinkEdit.GetTeam()).tointeger());
@@ -1116,7 +1081,7 @@ function InsertKeyframe()
 }
 
 // kf_remove
-function RemoveKeyframe():(VEC_MAX)
+function RemoveKeyframe():(MAX_COORD_VEC)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1155,7 +1120,7 @@ function RemoveKeyframe():(VEC_MAX)
 		nSelectedKeyframe = -1;
 
 		// cheap way to hide the sprite
-		hKeySprite.SetOrigin(VEC_MAX);
+		hKeySprite.SetOrigin(MAX_COORD_VEC);
 	}
 	else
 	{
@@ -1269,7 +1234,7 @@ function AddKeyframe()
 }
 
 // kf_clear
-function ClearKeyframes():(VEC_MAX)
+function ClearKeyframes():(MAX_COORD_VEC)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1299,7 +1264,7 @@ function ClearKeyframes():(VEC_MAX)
 	list_last_remove.clear();
 
 	// cheap way to hide the sprite
-	hKeySprite.SetOrigin(VEC_MAX);
+	hKeySprite.SetOrigin(MAX_COORD_VEC);
 
 	PlaySound("UIPanorama.container_countdown");
 }
@@ -1324,7 +1289,7 @@ function SetInterpMode(i)
 //--------------------------------------------------------------
 
 // kf_compile
-function Compile():(VEC_MAX,FTIME,flShowTime)
+function Compile():(MAX_COORD_VEC,FTIME,flShowTime)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Compilation in progress...");
@@ -1351,7 +1316,7 @@ function Compile():(VEC_MAX,FTIME,flShowTime)
 	::EntFireByHandle(hThinkEdit, "disable");
 	::SendToConsole("clear_debug_overlays");
 	// DrawOverlay(2);
-	hKeySprite.SetOrigin(VEC_MAX);
+	hKeySprite.SetOrigin(MAX_COORD_VEC);
 
 	Msg("\nPreparing..." + "\nResolution          : " + flInterpResolution + "\nTime between 2 keys : "+(FTIME/flInterpResolution)+"s\nAngle algorithm     : "+(bInterpModeAng?"default":"stabilised")+"\n");
 	PlaySound("UIPanorama.container_countdown");
@@ -1607,7 +1572,7 @@ function Save( i = 0 )
 	::VS.Log.export = true;
 	::VS.Log.filter = "L ";
 
-	_Save.LOG.append("l_" + (i?"keys_":"") + ::split(::GetMapName(),"/").top() + " <-{pos=[");
+	_Save.LOG.append("l" + (i?"k":"") + "_" + ::split(::GetMapName(),"/").top() + " <-{pos=[");
 
 	_Save.data_pos_save = i ? data_pos_kf.weakref() : data_pos_comp.weakref();
 	_Save.data_ang_save = i ? data_ang_kf.weakref() : data_ang_comp.weakref();
@@ -1790,7 +1755,7 @@ function Play()
 	::delay( "_KF_.MsgHint(\"Starting in 1...\");_KF_.PlaySound(\"UI.CounterBeep\")", 2.0 );
 
 	::HPlayer.SetHealth(1337);
-	::VS.HideHudHint(hHudHint, ::HPlayer, 3.0-::FrameTime());
+	::VS.HideHudHint(hHudHint, ::HPlayer, 3.0);
 
 	bStartedPending = true;
 	::delay( "_KF_.bStartedPending=false;_KF_.hThinkSet.SetTeam(1);_KF_.Msg(\"Playback has started...\\n\");EntFireByHandle(_KF_.hThinkSet,\"enable\")", 3.0 );
@@ -1857,11 +1822,12 @@ function fov(x)
 	foreach( i,v in data_fov_kf ) if( v[0] == nCurrKeyframe )
 	{
 		data_fov_kf[i] = q;
-		__CompileFOV();
+		// __CompileFOV();
 
-		MsgHint("Set key #" + nCurrKeyframe + " FOV to " + x);
+		// MsgHint("Set key #" + nCurrKeyframe + " FOV to " + x);
 		// MsgHint("Replaced previous FOV key.");
-		return;
+		// return;
+		break;
 	};
 
 	__CompileFOV();
@@ -1942,12 +1908,10 @@ function WelcomeMsg()
 {
 	Msg("\n\n\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected key\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected key\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected key\nkf_replace            : Replace the selected key\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a key, select the next one\nkf_prev               : While holding a key, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript fov(val)       : Set FOV data on the selected key\nscript roll(val)      : Set camera roll on the selected key\n                      :\nscript load(input)    : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
 
-	local flTickrate = ::VS.GetTickrate();
-
-	if( !::VS.IsInteger(128.0/flTickrate) )
+	if( !VS.IsInteger(128.0/VS.GetTickrate()) )
 	{
-		Msg("[!] Invalid tickrate ( " + flTickrate + " )! Only 128 and 64 ticks are supported.");
-		::Chat(txt.red+"[!] "+txt.white+"Invalid tickrate ( " +txt.yellow+ flTickrate +txt.white+" )! Only 128 and 64 ticks are supported.");
+		Msg(format("[!] Invalid tickrate (%.1f)! Only 128 and 64 tickrates are supported.",VS.GetTickrate()));
+		Chat(format("%s[!] %sInvalid tickrate ( %s%.1f%s )! Only 128 and 64 tickrates are supported.", txt.red, txt.white, txt.yellow, VS.GetTickrate(), txt.white));
 	};
 
 	delete WelcomeMsg;

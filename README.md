@@ -5,7 +5,7 @@ Create smooth camera paths live in-game, in mere seconds.
 
 You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.11-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.1.12-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 ## Installation
@@ -63,10 +63,11 @@ Command                | Description
 `kf_showkeys`          | In edit mode, toggle showing keyframes
 `kf_showpath`          | In edit mode, toggle showing the path
 ---                    | ---
-`script fov(val)`      | Set FOV data on the selected keyframe
-`script roll(val)`     | Set camera roll on the selected keyframe
+`script kf_fov(val)`   | Set FOV data on the selected keyframe
+`script kf_roll(val)`  | Set camera roll on the selected keyframe
+`script kf_res(val)`   | Set interpolation resolution
 ---                    | ---
-`script load(input)`   | Load new data from file
+`script kf_load(input)`| Load new data from file
 ---                    | ---
 `kf_cmd`               | List all commands
 

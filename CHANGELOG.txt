@@ -3,6 +3,10 @@
 
 --------------------------------
 
+2020-10-03 [v1.1.12]
+- Tweaked some output messages
+- Clamp draw resolution
+
 2020-09-18 [v1.1.11]
 - Minor cleanup
 

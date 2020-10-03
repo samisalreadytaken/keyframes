@@ -1,12 +1,12 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.1.11 --------------------------------------------------------------
+//- v1.1.12 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_interp");
 
 if(!("_KF_"in getroottable()))
-	::_KF_ <- { _VER_ = "1.1.11" };;
+	::_KF_ <- { _VER_ = "1.1.12" };;
 
 local __init__ = function(){
 
@@ -250,7 +250,7 @@ function MsgHint(s)
 
 // TODO: cleanup
 // Process large data by splitting it into chunks, recursively process the chunkss
-function load(i)
+function LoadData(i)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot load file while compiling!");
@@ -481,13 +481,13 @@ VS.AddOutput(hListener, "PlayerOff", function()
 {
 	SeeKeyframe();
 
-	::EntFireByHandle(hThinkKeys,"disable");
+	::EntFireByHandle(hThinkKeys,"Disable");
 	IN_FOV_I = false;
 	IN_FOV_O = false;
 	IN_ROLL_R = false;
 	IN_ROLL_L = false;
 
-	::EntFireByHandle(hListener,"activate","",0,::HPlayer)
+	::EntFireByHandle(hListener,"Activate","",0,::HPlayer)
 },this);
 
 //--------------------------------------------------------------
@@ -544,14 +544,14 @@ function KEY_ROLL_R(i)
 		vLastQuatKey = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
 
 		IN_ROLL_R = true;
-		::EntFireByHandle(hThinkKeys, "enable");
+		::EntFireByHandle(hThinkKeys, "Enable");
 	}
 	else
 	{
 		if( !bSeeing ) return;
 
 		IN_ROLL_R = false;
-		::EntFireByHandle(hThinkKeys, "disable");
+		::EntFireByHandle(hThinkKeys, "Disable");
 
 		// save last set data
 		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(vLastQuatKey,::Quaternion());
@@ -570,14 +570,14 @@ function KEY_ROLL_L(i)
 		vLastQuatKey = ::VS.QuaternionAngles2(data_quat_kf[nCurrKeyframe],::Vector());
 
 		IN_ROLL_L = true;
-		::EntFireByHandle(hThinkKeys, "enable");
+		::EntFireByHandle(hThinkKeys, "Enable");
 	}
 	else
 	{
 		if( !bSeeing ) return;
 
 		IN_ROLL_L = false;
-		::EntFireByHandle(hThinkKeys, "disable");
+		::EntFireByHandle(hThinkKeys, "Disable");
 
 		// save last set data
 		data_quat_kf[nCurrKeyframe] = ::VS.AngleQuaternion(vLastQuatKey,::Quaternion());
@@ -595,7 +595,7 @@ function KEY_FOV_I(i)
 		::VS.OnTimer(hThinkKeys,KEY_ThinkFOV);
 		iFOV = 90;
 		IN_FOV_I = true;
-		::EntFireByHandle(hThinkKeys, "enable");
+		::EntFireByHandle(hThinkKeys, "Enable");
 
 		// get current fov value
 		foreach( i,v in data_fov_kf ) if( v[0] == nCurrKeyframe )
@@ -604,7 +604,7 @@ function KEY_FOV_I(i)
 			return;
 		};
 
-		// if the key doesnt have any fov data, create one
+		// if the keyframe doesnt have any fov data, create one
 		data_fov_kf.append([nCurrKeyframe,0,0]);
 	}
 	else
@@ -612,7 +612,7 @@ function KEY_FOV_I(i)
 		if( !bSeeing ) return;
 
 		IN_FOV_I = false;
-		::EntFireByHandle(hThinkKeys, "disable");
+		::EntFireByHandle(hThinkKeys, "Disable");
 
 		foreach( i,v in data_fov_kf ) if( v[0] == nCurrKeyframe )
 			v[1] = iFOV;
@@ -630,7 +630,7 @@ function KEY_FOV_O(i)
 		::VS.OnTimer(hThinkKeys,KEY_ThinkFOV);
 		iFOV = 90;
 		IN_FOV_O = true;
-		::EntFireByHandle(hThinkKeys, "enable");
+		::EntFireByHandle(hThinkKeys, "Enable");
 
 		// get current fov value
 		foreach( i,v in data_fov_kf ) if( v[0] == nCurrKeyframe )
@@ -639,7 +639,7 @@ function KEY_FOV_O(i)
 			return;
 		};
 
-		// if the key doesnt have any fov data, create one
+		// if the keyframe doesnt have any fov data, create one
 		data_fov_kf.append([nCurrKeyframe,0,0]); // -1
 	}
 	else
@@ -647,7 +647,7 @@ function KEY_FOV_O(i)
 		if( !bSeeing ) return;
 
 		IN_FOV_O = false;
-		::EntFireByHandle(hThinkKeys, "disable");
+		::EntFireByHandle(hThinkKeys, "Disable");
 
 		foreach( i,v in data_fov_kf ) if( v[0] == nCurrKeyframe )
 			v[1] = iFOV;
@@ -710,7 +710,7 @@ function ToggleEditMode():(EF)
 		// DrawOverlay(1);
 		::SendToConsole("cl_drawhud 1");
 		hKeySprite.__KeyValueFromInt("effects", EF.ON);
-		::EntFireByHandle(hThinkEdit, "enable");
+		::EntFireByHandle(hThinkEdit, "Enable");
 
 		Msg("Edit mode enabled.");
 	}
@@ -723,8 +723,8 @@ function ToggleEditMode():(EF)
 
 		// DrawOverlay(0);
 		hKeySprite.__KeyValueFromInt("effects", EF.OFF);
-		::EntFireByHandle(hThinkEdit, "disable");
-		::EntFireByHandle(hGameText2, "settext", "", 0, ::HPlayer);
+		::EntFireByHandle(hThinkEdit, "Disable");
+		::EntFireByHandle(hGameText2, "SetText", "", 0, ::HPlayer);
 
 		Msg("Edit mode disabled.");
 	};
@@ -744,11 +744,11 @@ function SelectKeyframe()
 	{
 		nSelectedKeyframe = nCurrKeyframe;
 
-		MsgHint("Selected key #" + nSelectedKeyframe);
+		MsgHint("Selected keyframe #" + nSelectedKeyframe);
 	}
 	else
 	{
-		MsgHint("Unselected key #" + nSelectedKeyframe);
+		MsgHint("Unselected keyframe #" + nSelectedKeyframe);
 
 		// unsee silently
 		if( bSeeing )
@@ -764,7 +764,7 @@ function SelectKeyframe()
 function NextKeyframe()
 {
 	if( nSelectedKeyframe == -1 )
-		return MsgFail("You need to have a key selected to use kf_next.");
+		return MsgFail("You need to have a keyframe selected to use kf_next.");
 
 	local t = (nSelectedKeyframe+1) % data_pos_kf.len(),
 	      b = bSeeing;		// hold current value
@@ -783,7 +783,7 @@ function NextKeyframe()
 function PrevKeyframe()
 {
 	if( nSelectedKeyframe == -1 )
-		return MsgFail("You need to have a key selected to use kf_prev.");
+		return MsgFail("You need to have a keyframe selected to use kf_prev.");
 
 	// local t = clamp(nSelectedKeyframe-1,0,data_pos_kf.len()-1),
 
@@ -817,7 +817,7 @@ function SeeKeyframe(i=0):(EF)
 		if( nSelectedKeyframe != -1 ) SelectKeyframe();
 		hKeySprite.__KeyValueFromInt("effects", EF.ON);
 		hCam.SetFov(0,0.1);
-		::EntFireByHandle(hCam, "disable", "", 0, ::HPlayer);
+		::EntFireByHandle(hCam, "Disable", "", 0, ::HPlayer);
 		ListenMouse(1);
 		return;
 	};
@@ -851,11 +851,11 @@ function SeeKeyframe(i=0):(EF)
 
 		hCam.SetOrigin(data_pos_kf[nSelectedKeyframe]);
 		SetAngles(VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
-		::EntFireByHandle(hCam, "enable", "", 0, HPlayer);
+		::EntFireByHandle(hCam, "Enable", "", 0, HPlayer);
 
 		ListenKeys(1);
 
-		MsgHint("Seeing key #"+nSelectedKeyframe);
+		MsgHint("Seeing keyframe #"+nSelectedKeyframe);
 	}
 	else
 	{
@@ -867,7 +867,7 @@ function SeeKeyframe(i=0):(EF)
 
 		hKeySprite.__KeyValueFromInt("effects", EF.ON);
 		hCam.SetFov(0,0.1);
-		::EntFireByHandle(hCam, "disable", "", 0, ::HPlayer);
+		::EntFireByHandle(hCam, "Disable", "", 0, ::HPlayer);
 		// ListenKeys(0);
 
 		ListenMouse(1);
@@ -895,7 +895,7 @@ VS.OnTimer(hThinkEdit,function():(flShowTime,VEC_MINS,VEC_MAXS,DebugDrawBox,Debu
 	{
 		local strHold = "";
 
-		// not selected any key
+		// not selected any keyframe
 		if( nSelectedKeyframe == -1 )
 		{
 			local nCurr = keys.len()-1;
@@ -935,13 +935,13 @@ VS.OnTimer(hThinkEdit,function():(flShowTime,VEC_MINS,VEC_MAXS,DebugDrawBox,Debu
 			hGameText2.__KeyValueFromString("message", "FOV: " + v[1]);
 
 		hGameText.__KeyValueFromString("message", "KEY: " + nCurrKeyframe + strHold);
-		EntFireByHandle(hGameText, "display", "", 0, HPlayer);
-		EntFireByHandle(hGameText2, "display", "", 0, HPlayer);
-		EntFireByHandle(hGameText2, "settext", "", 0, HPlayer);
+		EntFireByHandle(hGameText, "Display", "", 0, HPlayer);
+		EntFireByHandle(hGameText2, "Display", "", 0, HPlayer);
+		EntFireByHandle(hGameText2, "SetText", "", 0, HPlayer);
 
 		local vKeyPos = keys[nCurrKeyframe];
 
-		// selected key
+		// selected keyframe
 		DebugDrawBox(vKeyPos, VEC_MINS, VEC_MAXS, 255, 138, 0, 255, flShowTime);
 		hKeySprite.SetOrigin(vKeyPos);
 
@@ -1147,7 +1147,7 @@ function UndoLast(t)
 	if(t)
 	{
 		if( !list_last_remove.len() )
-			return MsgFail("No removed key found.");
+			return MsgFail("No removed keyframe found.");
 
 		local i = list_last_remove[0];
 
@@ -1169,7 +1169,7 @@ function UndoLast(t)
 	else
 	{
 		if( !list_last_replace.len() )
-			return MsgFail("No replaced key found.");
+			return MsgFail("No replaced keyframe found.");
 
 		local i = list_last_replace[0];
 
@@ -1206,7 +1206,7 @@ function RemoveFOV()
 
 	__CompileFOV();
 
-	MsgHint("Removed FOV data at key #" + nCurrKeyframe);
+	MsgHint("Removed FOV data at keyframe #" + nCurrKeyframe);
 	PlaySound("UIPanorama.container_countdown");
 }
 
@@ -1313,12 +1313,16 @@ function Compile():(MAX_COORD_VEC,FTIME,flShowTime)
 	SeeKeyframe(1);
 
 	// temporarily disable edit mode
-	::EntFireByHandle(hThinkEdit, "disable");
+	::EntFireByHandle(hThinkEdit, "Disable");
 	::SendToConsole("clear_debug_overlays");
 	// DrawOverlay(2);
 	hKeySprite.SetOrigin(MAX_COORD_VEC);
 
-	Msg("\nPreparing..." + "\nResolution          : " + flInterpResolution + "\nTime between 2 keys : "+(FTIME/flInterpResolution)+"s\nAngle algorithm     : "+(bInterpModeAng?"default":"stabilised")+"\n");
+	Msg("\n");
+	Msg("Preparing...");
+	Msg("Resolution               : " + flInterpResolution);
+	Msg("Time between 2 keyframes : "+(FTIME/flInterpResolution)+"s");
+	Msg("Angle algorithm          : "+(bInterpModeAng?"default":"stabilised")+"\n");
 	PlaySound("UIPanorama.container_countdown");
 
 	return::delay( "_KF_._Compile.__Compile()", flShowTime+::FrameTime() );
@@ -1348,6 +1352,8 @@ function _Compile::__Compile():(FTIME)
 	_CMX = ::clamp(_STP, 0, __STP);
 
 	nDrawResolution = __STP.tointeger() / 10;
+
+	nDrawResolution = ::max( nDrawResolution, 1 );
 
 	::print("Compiling (1/3) ");
 	return::delay( "_KF_._Compile.__SplineOrigin()", RTIME );
@@ -1488,9 +1494,15 @@ function _Compile::__Finish():(FTIME)
 
 	// complete
 	hCam.SetTeam(0);
-	::EntFireByHandle(hThinkEdit, hThinkEdit.GetTeam()?"enable":"disable");
+	::EntFireByHandle(hThinkEdit, hThinkEdit.GetTeam()?"Enable":"Disable");
 	// DrawOverlay(hThinkEdit.GetTeam()?1:0);
-	Msg("\n\nCompiled keyframes: "+data_pos_comp.len() * FTIME+" seconds\n\n* Play the compiled data      kf_play\n* Toggle edit mode            kf_edit\n* Save the compiled data      kf_save\n* Save the keyframes          kf_savekeys\n\n* List all commands           kf_cmd\n");
+	Msg("\n\n");
+	Msg("Compiled keyframes: "+data_pos_comp.len() * FTIME+" seconds\n");
+	Msg("* Play the compiled data  kf_play");
+	Msg("* Toggle edit mode        kf_edit");
+	Msg("* Save the compiled data  kf_save");
+	Msg("* Save the keyframes      kf_savekeys\n");
+	Msg("* List all commands       kf_cmd\n");
 	Hint("Compilation complete!");
 	PlaySound("UIPanorama.container_countdown");
 }
@@ -1507,12 +1519,12 @@ function _Compile::__CompileFOV():(FTIME)
 
 	_f.sort(sort);
 
-	// FOV data at key 0 is invalid
+	// FOV data at keyframe 0 is invalid
 	if( _f[0][0] == 0 ) _f.remove(0);
 
 	if( !_f.len() ) return;
 
-	// if key 1 doesn't have an FOV value, set to 90
+	// if keyframe 1 doesn't have an FOV value, set to 90
 	if( _f[0][0] != 1 ) _f.insert(0,[1,90,0]);
 
 	// data_fov_comp = ::array(_f.len()-1);
@@ -1534,7 +1546,7 @@ function _Compile::__CompileFOV():(FTIME)
 		_v[i] = [ (v[0]-1)*__STP, c[1], d ];
 	}
 
-	// key 1
+	// keyframe 1
 	if( _f[0][0] == 1 )
 		_v.insert(0,[-__STP,_f[0][1],0]);
 
@@ -1567,7 +1579,7 @@ function Save( i = 0 )
 	_Save.LOG = ::VS.Log.L.weakref();
 
 	::VS.Log.Clear();
-	::VS.Log.filePrefix = "scripts/vscripts/kf_data";
+	::VS.Log.file_prefix = "scripts/vscripts/kf_data";
 	::VS.Log.condition = true;
 	::VS.Log.export = true;
 	::VS.Log.filter = "L ";
@@ -1588,8 +1600,11 @@ function Save( i = 0 )
 // save run
 function _Save::__Finish(i)
 {
+	// FIXME
+	::VS.IsDedicatedServer = function() return true;
+
 	local file = ::VS.Log.Run();
-	Msg("\n* "+(i?"Keyframe":"Path")+" data is exported: /csgo/"+file+".log\n");
+	Msg("\n"+(i?"Keyframe":"Path")+" data is exported: /csgo/"+file+".log\n");
 
 	LOG = null;
 	data_pos_save = null;
@@ -1747,8 +1762,8 @@ function Play()
 
 	hCam.SetOrigin(s.pos[0]);
 	SetAngles(s.ang[0]);
-	::EntFireByHandle(hCam, "enable", "", 0, ::HPlayer);
-	::EntFireByHandle(hThinkSet, "disable");
+	::EntFireByHandle(hCam, "Enable", "", 0, ::HPlayer);
+	::EntFireByHandle(hThinkSet, "Disable");
 
 	MsgHint("Starting in 3...");PlaySound("UI.CounterBeep");
 	::delay( "_KF_.MsgHint(\"Starting in 2...\");_KF_.PlaySound(\"UI.CounterBeep\")", 1.0 );
@@ -1758,7 +1773,7 @@ function Play()
 	::VS.HideHudHint(hHudHint, ::HPlayer, 3.0);
 
 	bStartedPending = true;
-	::delay( "_KF_.bStartedPending=false;_KF_.hThinkSet.SetTeam(1);_KF_.Msg(\"Playback has started...\\n\");EntFireByHandle(_KF_.hThinkSet,\"enable\")", 3.0 );
+	::delay( "_KF_.bStartedPending=false;_KF_.hThinkSet.SetTeam(1);_KF_.Msg(\"Playback has started...\\n\");EntFireByHandle(_KF_.hThinkSet,\"Enable\")", 3.0 );
 }
 
 // kf_stop
@@ -1769,8 +1784,8 @@ function Stop()
 
 	hThinkSet.SetTeam(0);
 
-	::EntFireByHandle(hCam, "disable", "", 0, ::HPlayer);
-	::EntFireByHandle(hThinkSet, "disable");
+	::EntFireByHandle(hCam, "Disable", "", 0, ::HPlayer);
+	::EntFireByHandle(hThinkSet, "Disable");
 
 	hCam.SetFov(0,0);
 
@@ -1780,8 +1795,7 @@ function Stop()
 
 //--------------------------------------------------------------
 
-// interp resolution
-function res(f):(FTIME)
+function SetInterpResolution(f):(FTIME)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot change resolution while compiling!");
@@ -1789,16 +1803,16 @@ function res(f):(FTIME)
 	f = f.tofloat();
 
 	if( f < 0.001 || f > 0.5 )
-		return MsgFail("Invalid resolution range. [0.001, 0.5]");
+		return MsgFail("Input out of range [0.001, 0.5]");
 
 	flInterpResolution = f;
 	__STP = floor(1.0/flInterpResolution);
-	Msg("Interpolation resolution set to: " + flInterpResolution);
-	Msg("Time between 2 keyframes: " + (FTIME/flInterpResolution) + " second(s)");
+	Msg("Interpolation resolution set to " + flInterpResolution);
+	Msg("Time between 2 keyframes: " + (FTIME/flInterpResolution) + " second(s)\n");
 	PlaySound("UIPanorama.container_countdown");
 }
 
-function fov(x)
+function SetFOV(x)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1824,18 +1838,18 @@ function fov(x)
 		data_fov_kf[i] = q;
 		// __CompileFOV();
 
-		// MsgHint("Set key #" + nCurrKeyframe + " FOV to " + x);
-		// MsgHint("Replaced previous FOV key.");
+		// MsgHint("Set keyframe #" + nCurrKeyframe + " FOV to " + x);
+		// MsgHint("Replaced previous FOV keyframe.");
 		// return;
 		break;
 	};
 
 	__CompileFOV();
 
-	MsgHint("Set key #" + nCurrKeyframe + " FOV to " + x);
+	MsgHint("Set keyframe #" + nCurrKeyframe + " FOV to " + x);
 }
 
-function roll(v)
+function SetRoll(v)
 {
 	if( hCam.GetTeam() )
 		return MsgFail("Cannot modify keyframes while compiling!");
@@ -1855,22 +1869,22 @@ function roll(v)
 	if( bSeeing )
 	{
 		if( nSelectedKeyframe == -1 )
-			return Error("[ERROR] Assertion failed. Seeing while no key is selected.");
+			return Error("[ERROR] Assertion failed. Seeing while no keyframe is selected.");
 
 		SetAngles(::VS.QuaternionAngles2(data_quat_kf[nSelectedKeyframe]));
 	};
 
-	MsgHint("Set key #" + nCurrKeyframe + " roll to " + v);
+	MsgHint("Set keyframe #" + nCurrKeyframe + " roll to " + v);
 	PlaySound("UIPanorama.container_countdown");
 }
 
 __CompileFOV <- _Compile.__CompileFOV.bindenv(_Compile);
 
-// global bindings for easy use with 'script XX()'
-::roll <- roll.bindenv(this);
-::fov <- fov.bindenv(this);
-::res <- res.bindenv(this);
-::load <- load.bindenv(this);
+// global bindings for easy use with 'script kf_XX()'
+::kf_roll <- SetRoll.bindenv(this);
+::kf_fov <- SetFOV.bindenv(this);
+::kf_res <- SetInterpResolution.bindenv(this);
+::kf_load <- LoadData.bindenv(this);
 
 //--------------------------------------------------------------
 
@@ -1883,7 +1897,7 @@ function PostSpawn()
 	::HPlayer.SetHealth(1337);
 
 	// key listener
-	::EntFireByHandle(hListener, "activate", "", 0, ::HPlayer);
+	::EntFireByHandle(hListener, "Activate", "", 0, ::HPlayer);
 
 	ListenMouse(1);
 
@@ -1906,7 +1920,8 @@ function PostSpawn()
 
 function WelcomeMsg()
 {
-	Msg("\n\n\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected key\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected key\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected key\nkf_replace            : Replace the selected key\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a key, select the next one\nkf_prev               : While holding a key, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript fov(val)       : Set FOV data on the selected key\nscript roll(val)      : Set camera roll on the selected key\n                      :\nscript load(input)    : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
+	Msg("\n\n");
+	PrintCmd();
 
 	if( !VS.IsInteger(128.0/VS.GetTickrate()) )
 	{
@@ -1925,12 +1940,12 @@ function PrintCmd()
 //   [v1.0.0]     github.com/samisalreadytaken/keyframes
 //
 //kf_add                : Add new keyframe
-//kf_remove             : Remove the selected key
+//kf_remove             : Remove the selected keyframe
 //kf_remove_undo        : Undo last remove action
-//kf_removefov          : Remove the FOV data from the selected key
+//kf_removefov          : Remove the FOV data from the selected keyframe
 //kf_clear              : Remove all keyframes
-//kf_insert             : Insert new keyframe after the selected key
-//kf_replace            : Replace the selected key
+//kf_insert             : Insert new keyframe after the selected keyframe
+//kf_replace            : Replace the selected keyframe
 //kf_replace_undo       : Undo last replace action
 //                      :
 //kf_compile            : Compile the keyframe data
@@ -1944,15 +1959,16 @@ function PrintCmd()
 //kf_edit               : Toggle edit mode
 //kf_select             : In edit mode, hold the current selection
 //kf_see                : In edit mode, see the current selection
-//kf_next               : While holding a key, select the next one
-//kf_prev               : While holding a key, select the previous one
+//kf_next               : While holding a keyframe, select the next one
+//kf_prev               : While holding a keyframe, select the previous one
 //kf_showkeys           : In edit mode, toggle showing keyframes
 //kf_showpath           : In edit mode, toggle showing the path
 //                      :
-//script fov(val)       : Set FOV data on the selected key
-//script roll(val)      : Set camera roll on the selected key
+//script kf_fov(val)    : Set FOV data on the selected keyframe
+//script kf_roll(val)   : Set camera roll on the selected keyframe
+//script kf_res(val)    : Set interpolation resolution
 //                      :
-//script load(input)    : Load new data from file
+//script kf_load(input) : Load new data from file
 //                      :
 //kf_cmd                : List all commands
 //
@@ -1967,7 +1983,7 @@ function PrintCmd()
 //MOUSE2                : (In see mode) kf_prev
 //");
 
-	Msg("\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected key\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected key\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected key\nkf_replace            : Replace the selected key\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a key, select the next one\nkf_prev               : While holding a key, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript fov(val)       : Set FOV data on the selected key\nscript roll(val)      : Set camera roll on the selected key\n                      :\nscript load(input)    : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
+	Msg("\n   [v"+_VER_+"]     github.com/samisalreadytaken/keyframes\n\nkf_add                : Add new keyframe\nkf_remove             : Remove the selected keyframe\nkf_remove_undo        : Undo last remove action\nkf_removefov          : Remove the FOV data from the selected keyframe\nkf_clear              : Remove all keyframes\nkf_insert             : Insert new keyframe after the selected keyframe\nkf_replace            : Replace the selected keyframe\nkf_replace_undo       : Undo last replace action\n                      :\nkf_compile            : Compile the keyframe data\nkf_play               : Play the compiled data\nkf_stop               : Stop playback\nkf_save               : Save the compiled data\nkf_savekeys           : Save the keyframe data\n                      :\nkf_mode_ang           : Toggle stabilised angles algorithm\n                      :\nkf_edit               : Toggle edit mode\nkf_select             : In edit mode, hold the current selection\nkf_see                : In edit mode, see the current selection\nkf_next               : While holding a keyframe, select the next one\nkf_prev               : While holding a keyframe, select the previous one\nkf_showkeys           : In edit mode, toggle showing keyframes\nkf_showpath           : In edit mode, toggle showing the path\n                      :\nscript kf_fov(val)    : Set FOV data on the selected keyframe\nscript kf_roll(val)   : Set camera roll on the selected keyframe\nscript kf_res(val)    : Set interpolation resolution            \n                      :\nscript kf_load(input) : Load new data from file\n                      :\nkf_cmd                : List all commands\n\n--- --- --- --- --- ---\n\nMOUSE1                : kf_add\nMOUSE2                : kf_remove\nE                     : kf_see\nA / D                 : (In see mode) Set camera roll\nW / S                 : (In see mode) Set camera FOV\nMOUSE1                : (In see mode) kf_next\nMOUSE2                : (In see mode) kf_prev\n");
 }
 
 }.call(_KF_);

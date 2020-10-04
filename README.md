@@ -5,7 +5,7 @@ Create smooth camera paths live in-game, in mere seconds.
 
 You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.12-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.1.13-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 ## Installation

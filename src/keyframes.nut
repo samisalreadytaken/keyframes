@@ -1,14 +1,14 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.1.12 --------------------------------------------------------------
+//- v1.1.13 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_interp");
 
 if(!("_KF_"in getroottable()))
-	::_KF_ <- { _VER_ = "1.1.12" };;
+	::_KF_ <- { _VER_ = "1.1.13" };;
 
-local __init__ = function(){
+local _ = function(){
 
 V <- ::Vector;
 Q <- ::Quaternion;
@@ -298,7 +298,7 @@ function LoadData(i)
 	_IDX <- 0;
 	_CMX <- ::clamp(_STP, 0, _LIM);
 
-	::print("Loading data...\n>.");
+	::print("Loading (1/3) .");
 
 	return __load();
 }
@@ -317,7 +317,7 @@ function __load():(FTIME)
 
 		if( _IDX >= _CMX )
 		{
-			::print("\n>.");
+			::print("\nLoading (2/3) .");
 
 			delete data_pos_load;
 			delete data_load_input["pos"];
@@ -342,7 +342,7 @@ function __load():(FTIME)
 
 		if( _IDX >= _CMX )
 		{
-			::print("\n>.");
+			::print("\nLoading (3/3) .");
 
 			delete data_ang_load;
 			delete data_load_input["ang"];
@@ -367,7 +367,7 @@ function __load():(FTIME)
 
 		if( _IDX >= _CMX )
 		{
-			::print("\n>.");
+			::print("\nLoading (3/3) .");
 
 			delete data_quat_load;
 			delete data_load_input["anq"];
@@ -398,7 +398,7 @@ function __load():(FTIME)
 	delete _CMX;
 
 	PlaySound("UIPanorama.container_countdown");
-	Msg("\n\nData loaded! " + ::VS.GetVarName(delete data_load_input));
+	Msg("\n\nLoading complete! \"" + ::VS.GetVarName(delete data_load_input) + "\"");
 }
 
 //--------------------------------------------------------------
@@ -903,7 +903,6 @@ VS.OnTimer(hThinkEdit,function():(flShowTime,VEC_MINS,VEC_MAXS,DebugDrawBox,Debu
 			local vEyePos = HPlayer.EyePosition();
 			local vEyeDir = ::HPlayerEye.GetForwardVector();
 
-			// VS.FindEntityNearestFacing
 			foreach( i, v in keys )
 			{
 				local dir = v - vEyePos;
@@ -1318,7 +1317,7 @@ function Compile():(MAX_COORD_VEC,FTIME,flShowTime)
 	// DrawOverlay(2);
 	hKeySprite.SetOrigin(MAX_COORD_VEC);
 
-	Msg("\n");
+	Msg("");
 	Msg("Preparing...");
 	Msg("Resolution               : " + flInterpResolution);
 	Msg("Time between 2 keyframes : "+(FTIME/flInterpResolution)+"s");
@@ -1502,7 +1501,6 @@ function _Compile::__Finish():(FTIME)
 	Msg("* Toggle edit mode        kf_edit");
 	Msg("* Save the compiled data  kf_save");
 	Msg("* Save the keyframes      kf_savekeys\n");
-	Msg("* List all commands       kf_cmd\n");
 	Hint("Compilation complete!");
 	PlaySound("UIPanorama.container_countdown");
 }
@@ -1527,7 +1525,6 @@ function _Compile::__CompileFOV():(FTIME)
 	// if keyframe 1 doesn't have an FOV value, set to 90
 	if( _f[0][0] != 1 ) _f.insert(0,[1,90,0]);
 
-	// data_fov_comp = ::array(_f.len()-1);
 	data_fov_comp.clear();
 	data_fov_comp.resize(_f.len()-1);
 
@@ -1566,7 +1563,7 @@ function Save( i = 0 )
 	if( !i )
 	{
 		if( !data_pos_comp.len() )
-			return MsgFail("No compiled keyframes found.");
+			return MsgFail("No compiled data found.");
 	}
 	else
 	{
@@ -1580,7 +1577,7 @@ function Save( i = 0 )
 
 	::VS.Log.Clear();
 	::VS.Log.file_prefix = "scripts/vscripts/kf_data";
-	::VS.Log.condition = true;
+	::VS.Log.enabled = true;
 	::VS.Log.export = true;
 	::VS.Log.filter = "L ";
 
@@ -1601,10 +1598,10 @@ function Save( i = 0 )
 function _Save::__Finish(i)
 {
 	// FIXME
-	::VS.IsDedicatedServer = function() return true;
+	::VS.IsDedicatedServer = function() return false;
 
 	local file = ::VS.Log.Run();
-	Msg("\n"+(i?"Keyframe":"Path")+" data is exported: /csgo/"+file+".log\n");
+	Msg((i?"Keyframe":"Path")+" data is exported: /csgo/"+file+".log\n");
 
 	LOG = null;
 	data_pos_save = null;
@@ -1657,7 +1654,7 @@ function _Save::__ang(i):(FTIME)
 		local kf;
 
 		// saving keys?
-		if(i)
+		if (i)
 		{
 			local l = data_quat_kf.len();
 
@@ -1673,10 +1670,13 @@ function _Save::__ang(i):(FTIME)
 
 			kf = data_fov_kf;
 		}
-		else kf = data_fov_comp;
+		else
+		{
+			kf = data_fov_comp;
+		};
 
 		// save fov
-		if(kf.len())
+		if ( kf.len() )
 		{
 			LOG.append("fov=[");
 
@@ -1719,7 +1719,7 @@ VS.OnTimer(hThinkSet, function()
 		break;
 	};
 
-	if( ++idx >= lim )
+	if ( lim <=++ idx )
 		::_KF_.Stop();
 },null,true);
 
@@ -1808,7 +1808,7 @@ function SetInterpResolution(f):(FTIME)
 	flInterpResolution = f;
 	__STP = floor(1.0/flInterpResolution);
 	Msg("Interpolation resolution set to " + flInterpResolution);
-	Msg("Time between 2 keyframes: " + (FTIME/flInterpResolution) + " second(s)\n");
+	Msg("Time between 2 keyframes: " + (FTIME/flInterpResolution) + " second(s)");
 	PlaySound("UIPanorama.container_countdown");
 }
 
@@ -1920,7 +1920,7 @@ function PostSpawn()
 
 function WelcomeMsg()
 {
-	Msg("\n\n");
+	Msg("\n");
 	PrintCmd();
 
 	if( !VS.IsInteger(128.0/VS.GetTickrate()) )

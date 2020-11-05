@@ -5,7 +5,7 @@ Create smooth camera paths live in-game, in mere seconds.
 
 You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.13-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.1.14-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 ## Installation
@@ -23,7 +23,7 @@ On Windows 10 17063 or later, run the [`install_keyframes.bat`](https://raw.gith
 **Method 3.**
 In bash, after changing the directory below to your Steam game library directory, use the following commands to install the script into your game files.
 ```
-cd "C:/Program Files/Steam/steamapps/common/Counter-Strike Global Offensive/" && 
+cd "C:/Program Files/Steam/steamapps/common/Counter-Strike Global Offensive/" &&
 curl https://codeload.github.com/samisalreadytaken/keyframes/tar.gz/master | tar -xz --strip=1 keyframes-master/csgo
 ```
 
@@ -46,6 +46,7 @@ Command                | Description
 `kf_insert`            | Insert new keyframe after the selected keyframe
 `kf_replace`           | Replace the selected keyframe
 `kf_replace_undo`      | Undo last replace action
+`kf_copy`              | Set player pos/ang to the current keyframe
 ---                    | ---
 `kf_compile`           | Compile the keyframe data
 `kf_play`              | Play the compiled data
@@ -68,6 +69,8 @@ Command                | Description
 `script kf_res(val)`   | Set interpolation resolution
 ---                    | ---
 `script kf_load(input)`| Load new data from file
+`script kf_trim(val)`  | Trim compiled data to specified length. Specify second param for direction
+`kf_trim_undo`         | Undo last trim action
 ---                    | ---
 `kf_cmd`               | List all commands
 

@@ -5,13 +5,13 @@ Create smooth camera paths live in-game, in mere seconds.
 
 You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.14-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.1.15-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 ## Installation
 Merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
 
-This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. It is VAC safe, and you can only use this script on your own server.
+This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. You can only use this script on your own server.
 
 ### Downloading
 **Method 1.**
@@ -43,7 +43,7 @@ Command                | Description
 `kf_remove_undo`       | Undo last remove action
 `kf_removefov`         | Remove the FOV data from the selected keyframe
 `kf_clear`             | Remove all keyframes
-`kf_insert`            | Insert new keyframe after the selected keyframe
+`kf_insert`            | Insert new keyframe before the selected keyframe
 `kf_replace`           | Replace the selected keyframe
 `kf_replace_undo`      | Undo last replace action
 `kf_copy`              | Set player pos/ang to the current keyframe
@@ -68,6 +68,7 @@ Command                | Description
 `script kf_roll(val)`  | Set camera roll on the selected keyframe
 `script kf_res(val)`   | Set interpolation resolution
 ---                    | ---
+`kf_load`              | Load data file
 `script kf_load(input)`| Load new data from file
 `script kf_trim(val)`  | Trim compiled data to specified length. Specify second param for direction
 `kf_trim_undo`         | Undo last trim action
@@ -96,7 +97,7 @@ You can open the exported file (`.log`) with any text editor. You must replace `
 ### Implementation notes
 Position and angle values are interpolated using Catmull-Rom splines between two consecutive keyframes.
 
-FOV values are linearly interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. Thus, the FOV data on the very first (KEY 0) keyframe is discarded. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
+FOV values are interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. Thus, the FOV data on the very first (KEY 0) keyframe is discarded. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
 
 Modifying the position or angle data, including camera roll, of any key requires compilation before seeing the changes in playback. Whereas for FOV datas, the user can see their changes in playback without having to recompile.
 

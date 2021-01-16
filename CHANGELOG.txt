@@ -3,6 +3,10 @@
 
 --------------------------------
 
+2021-01-17 [v1.1.15]
+- Improved memory usage on saving, trimming and compilation
+- Changed the logic of kf_insert to insert before the current keyframe instead of after
+
 2020-11-05 [v1.1.14]
 - Added kf_trimto() for trimming compiled data to specified length
 - Added kf_copy for setting player position and angle to the current keyframe

@@ -1646,7 +1646,7 @@ function Save( i = 0 ) : ( szMapName )
 
 	_Save.m_iSaveType = i;
 	_Save.Add = ::VS.Log.Add.weakref();
-	_Save.LOG = ::VS.Log._DAT.weakref();
+	_Save.LOG = ::VS.Log.m_data.weakref();
 
 	::VS.Log.Clear();
 	::VS.Log.file_prefix = "scripts/vscripts/kf_data";

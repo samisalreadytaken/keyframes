@@ -3,6 +3,31 @@
 
 --------------------------------
 
+2021-06-26 [v1.2.0]
+- Added kf_mode_angles and kf_mode_origin for cycling through interpolators
+- Changed default angle interpolation to DirectX spline
+- Fixed compilation and precision bugs. This will now give more accurate results.
+- Added kf_preview for playing the path without compiling
+- Replaced 3D keyframe drawing with 2D filled rectangles
+- Added distance based keyframe frustum drawing
+- Added distance based keyframe rectangle scaling
+- Optimised path drawing
+- Added global undo/redo system for keyframe modifications (only position and orientation)
+- Added replacing keyframe while no keys are selected (kf_replace > kf_add)
+- Added inserting keyframe while no keys are selected (kf_insert > kf_add)
+- Deprecated kf_select
+- Added keyframe replacement animation
+- Added kf_transform for moving and rotating all keyframes
+- Added auto boundary keyframe duplication (kf_auto_fill_boundaries)
+- Added kf_select_path for path specific actions (smoothing and playback)
+- Enabled edit mode by default
+- Renamed command kf_save to kf_savepath
+- Renamed command kf_load to kf_loadfile
+- Removed previous default angle interpolator
+- Fixed stopping playback before it starts
+- Reformatted file output
+- Code refactor / backend improvements
+
 2021-01-17 [v1.1.15]
 - Improved memory usage on saving, trimming and compilation
 - Changed the logic of kf_insert to insert before the current keyframe instead of after

@@ -1,21 +1,23 @@
 # CS:GO Keyframe Smoothing Script
 [![ver][]](https://github.com/samisalreadytaken/keyframes)
 
-Create smooth camera paths live in-game, in mere seconds.
+Quick smooth camera path creation.
 
-You can manipulate any keyframe at any time. You can save your keyframes, or your compiled paths to come back to them at a later time.
+![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.1.15-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.0-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
+
 
 ## Installation
 Merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
 
 This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. You can only use this script on your own server.
 
+
 ### Downloading
 **Method 1.**
-Manually download the repo by clicking [**HERE**](https://github.com/samisalreadytaken/keyframes/archive/master.zip). Then extract the folder.
+Manually download the repository ([`Code > Download ZIP`](https://github.com/samisalreadytaken/keyframes/archive/master.zip)), then extract the folder.
 
 **Method 2.**
 On Windows 10 17063 or later, run the [`install_keyframes.bat`](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat) file to automatically download the script into your game files. It can also be used to update the script.
@@ -26,6 +28,7 @@ In bash, after changing the directory below to your Steam game library directory
 cd "C:/Program Files/Steam/steamapps/common/Counter-Strike Global Offensive/" &&
 curl https://codeload.github.com/samisalreadytaken/keyframes/tar.gz/master | tar -xz --strip=1 keyframes-master/csgo
 ```
+
 
 ## Usage
 Use the console commands to load and control the script. You need to load it each time you change the map.
@@ -40,24 +43,32 @@ Command                | Description
 ---                    | ---
 `kf_add`               | Add new keyframe
 `kf_remove`            | Remove the selected keyframe
-`kf_remove_undo`       | Undo last remove action
 `kf_removefov`         | Remove the FOV data from the selected keyframe
 `kf_clear`             | Remove all keyframes
 `kf_insert`            | Insert new keyframe before the selected keyframe
-`kf_replace`           | Replace the selected keyframe
-`kf_replace_undo`      | Undo last replace action
+`kf_replace`           | Replace the current keyframe
 `kf_copy`              | Set player pos/ang to the current keyframe
+`kf_undo`              | Undo last keyframe modify action
+`kf_redo`              | Redo
+`kf_undo_history`      | Show undo history
 ---                    | ---
 `kf_compile`           | Compile the keyframe data
+`kf_smooth_angles`     | Smooth compiled path angles
+`kf_smooth_angles_exp` | Smooth compiled path angles exponentially
+`kf_smooth_origin`     | Smooth compiled path origin
 `kf_play`              | Play the compiled data
+`kf_play_loop`         | Play the compiled data looped
+`kf_preview`           | Play the keyframe data without compiling
 `kf_stop`              | Stop playback
-`kf_save`              | Save the compiled data
-`kf_savekeys`          | Save the keyframe data
+`kf_savepath`          | Export the compiled data
+`kf_savekeys`          | Export the keyframe data
 ---                    | ---
-`kf_mode_ang`          | Toggle stabilised angles algorithm (no camera roll)
+`kf_mode_angles`       | Cycle through angle interpolation types
+`kf_mode_origin`       | Cycle through position interpolation types
+`kf_auto_fill_boundaries`| Duplicate the first and last keyframes in compilation
 ---                    | ---
 `kf_edit`              | Toggle edit mode
-`kf_select`            | In edit mode, hold the current selection
+`kf_select_path`       | In edit mode, select path
 `kf_see`               | In edit mode, see the current selection.
 `kf_next`              | While holding a keyframe, select the next one
 `kf_prev`              | While holding a keyframe, select the previous one
@@ -66,11 +77,13 @@ Command                | Description
 ---                    | ---
 `script kf_fov(val)`   | Set FOV data on the selected keyframe
 `script kf_roll(val)`  | Set camera roll on the selected keyframe
-`script kf_res(val)`   | Set interpolation resolution
+`script kf_res(val)`   | Set interpolation sampling rate
 ---                    | ---
-`kf_load`              | Load data file
+`script kf_transform()`| Rotate all keyframes around key with optional translation offset (idx,offset,rotation)
+---                    | ---
+`kf_loadfile`          | Load data file
 `script kf_load(input)`| Load new data from file
-`script kf_trim(val)`  | Trim compiled data to specified length. Specify second param for direction
+`script kf_trim(val)`  | Trim compiled path to specified length. Specify second param for direction
 `kf_trim_undo`         | Undo last trim action
 ---                    | ---
 `kf_cmd`               | List all commands
@@ -87,22 +100,44 @@ Default Key Binds    | Command                        | Game command to listen
 
 Suggested Key Binds  | Command
 :-------------------:|---------------
-`F`                  | `kf_select`
-`X`                  | `kf_insert`
+`F`                  | `kf_select_path`
+`Z`                  | `kf_undo`
+`X`                  | `kf_redo`
 `C`                  | `kf_replace`
+`V`                  | `kf_insert`
 
-### Exported file
-You can open the exported file (`.log`) with any text editor. You must replace `L ` with blank, i.e. remove, for the data to work. Once you have cleared the exported file, copy and paste it in the `keyframes_data.nut` file, which you can also open with any text editor. The data name can only contain letters and numbers, it cannot start with a number. You can store as much data as you want, and load any at any time.
+
+### File export
+You can open the exported file (`.log`) with any text editor. You must replace `L ` with blank, i.e. remove, for the data to work.
+
+Once you have cleared the exported file, either copy and paste it all in the `keyframes_data.nut` file, or rename the file extension to `.nut` and add it in the data file with `IncludeScript("kf_data_00000000.nut")`.
+
+The data name can only contain letters and numbers, it cannot start with a number. You can store as much data as you want, and load any at any time.
+
+You may reload the files with `kf_loadfile`, load named data with `script kf_load()`.
+
+You can convert old saved data to new version by loading and saving - `script kf_load( my_saved_data )`, `kf_savekeys`/`kf_savepath`.
+
 
 ### Implementation notes
-Position and angle values are interpolated using Catmull-Rom splines between two consecutive keyframes.
+Spline interpolation requires 4 keyframes to interpolate between 2 keyframes. For this reason the very first and the very last keyframes do not have paths leading to and from them, but they affect the interpolation of the keyframes next to them. If desired, `kf_auto_fill_boundaries` can be used to toggle automatic duplication of these boundary keyframes.
 
-FOV values are interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. Thus, the FOV data on the very first (KEY 0) keyframe is discarded. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
+FOV values are interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
 
-Modifying the position or angle data, including camera roll, of any key requires compilation before seeing the changes in playback. Whereas for FOV datas, the user can see their changes in playback without having to recompile.
+Modifying any keyframe requires compilation before seeing the changes in playback (`kf_play`) and in export (`kf_savepath`). `kf_preview` can be used to playback these changes without compilation.
+
+You may also select a portion of the compiled path with `kf_select_path` to playback while fine tuning your path. Use MOUSE1/MOUSE2 to select/cancel the selection. Use `kf_play_loop` to loop the playback.
+
+`kf_transform( int index, Vector offset, Vector rotation )`: index is the index of a keyframe to pivot the transform. If index is -1, average position of all keyframes is used as pivot point; if index is -2, current camera position (player) is used as pivot point.
+
+Example: `script kf_transform( 1, null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees horizontally (yaw) around keyframe 1.
+
+Example: `script kf_transform( 0, Vector(0, 0, 64), null )` moves all keyframes 64 units vertically.
+
 
 ## Changelog
 See [CHANGELOG.txt](CHANGELOG.txt)
+
 
 ## License
 You are free to use, modify and share this script under the terms of the GNU GPLv2.0 license. In short, you must keep the copyright notice, and make your modifications public under the same license if you distribute it.

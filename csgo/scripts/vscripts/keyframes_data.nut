@@ -7,5 +7,9 @@
 //
 // my_data6 <-{...}
 //
+// IncludeScript( "kf_data_00000000.nut" )
+//
+
+
 
 

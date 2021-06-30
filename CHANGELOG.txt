@@ -3,6 +3,10 @@
 
 --------------------------------
 
+2021-06-30 [v1.2.1]
+- Added 3D translation manipulator (kf_translate)
+- Fixed kf_select_path edge cases
+
 2021-06-26 [v1.2.0]
 - Added kf_mode_angles and kf_mode_origin for cycling through interpolators
 - Changed default angle interpolation to DirectX spline
@@ -18,7 +22,7 @@
 - Deprecated kf_select
 - Added keyframe replacement animation
 - Added kf_transform for moving and rotating all keyframes
-- Added auto boundary keyframe duplication (kf_auto_fill_boundaries)
+- Added auto boundary keyframe duplication (kf_auto_fill_boundaries) - suggested by djmattyg007
 - Added kf_select_path for path specific actions (smoothing and playback)
 - Enabled edit mode by default
 - Renamed command kf_save to kf_savepath

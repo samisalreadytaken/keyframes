@@ -1,13 +1,14 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.0 --------------------------------------------------------------
+//- v1.2.1 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_math2");
 IncludeScript("vs_library/vs_interp");
+IncludeScript("vs_library/vs_collision");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.0" };;
+	::_KF_ <- { version = "1.2.1" };;
 
 local _ = function(){
 
@@ -35,6 +36,7 @@ SendToConsole("alias kf_mode_angles\"script _KF_.SetAngleInterp()\"");
 SendToConsole("alias kf_mode_origin\"script _KF_.SetOriginInterp()\"");
 SendToConsole("alias kf_auto_fill_boundaries\"script _KF_.SetAutoFillBoundaries()\"");
 SendToConsole("alias kf_edit\"script _KF_.SetEditMode()\"");
+SendToConsole("alias kf_translate\"script _KF_.ShowGizmo()\"");
 SendToConsole("alias kf_select_path\"script _KF_.SelectPath()\"");
 SendToConsole("alias kf_see\"script _KF_.SeeKeyframe()\"");
 SendToConsole("alias kf_next\"script _KF_.NextKeyframe()\"");
@@ -129,6 +131,21 @@ if ( !("_Process" in this) )
 	m_bAutoFillBoundaries <- false;
 	m_flSampleRate <- 0.01; // KF_INTERP_SAMPLE_RATE_DEFAULT
 	m_nSampleCount <- 0;
+
+	m_nMouseOver <- 0;
+	m_bGizmoEnabled <- false;
+	m_bMouseDown <- false;
+	m_nTranslation <- 0;
+
+	m_vecLastForwardFrame <- null;
+	m_vecCameraOffset <- null;
+	m_vecOffset <- null;
+	m_vecLastKeyOrigin <- Vector();
+	m_vecLastOrigin <- null;
+	m_vecLastDeltaOrigin <- null;
+	m_vecLastForward <- null;
+	m_vecLastUp <- null;
+	m_vecLastRight <- null;
 
 	m_nDrawResolution <- 1;
 	m_nSelectedKeyframe <- -1;
@@ -225,9 +242,6 @@ if ( !("m_hThinkCam" in this) )
 	m_hCam <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
 
 	m_hListener <- VS.CreateEntity("game_ui",{ spawnflags = 1<<7, fieldofview = -1.0 },true).weakref();
-
-	VS.AddOutput( m_hListener, "UnpressedAttack",  null );
-	VS.AddOutput( m_hListener, "UnpressedAttack2", null );
 
 	PrecacheModel("keyframes/kf_circle_orange.vmt");
 
@@ -346,6 +360,10 @@ function SetHelperOrigin( vec )
 	m_hKeySprite.SetOrigin( vec );
 }
 
+function IsDucking()
+{
+	return player.GetBoundingMaxs().z != 72.0;
+}
 
 function MainViewOrigin()
 {
@@ -585,9 +603,6 @@ function ListenKeys(i)
 	{
 		ListenMouse(0);
 
-		VS.AddOutput( m_hListener, "PressedAttack",  NextKeyframe );
-		VS.AddOutput( m_hListener, "PressedAttack2", PrevKeyframe );
-
 		m_hListener.ConnectOutput("PressedMoveRight","PressedMoveRight");
 		m_hListener.ConnectOutput("UnpressedMoveRight","UnpressedMoveRight");
 		m_hListener.ConnectOutput("PressedMoveLeft","PressedMoveLeft");
@@ -604,8 +619,6 @@ function ListenKeys(i)
 	}
 	else
 	{
-		m_hListener.DisconnectOutput("PressedAttack","PressedAttack");
-		m_hListener.DisconnectOutput("PressedAttack2","PressedAttack2");
 		m_hListener.DisconnectOutput("PressedMoveRight","PressedMoveRight");
 		m_hListener.DisconnectOutput("UnpressedMoveRight","UnpressedMoveRight");
 		m_hListener.DisconnectOutput("PressedMoveLeft","PressedMoveLeft");
@@ -627,16 +640,21 @@ function ListenMouse(i)
 	{
 		ListenKeys(0);
 
-		VS.AddOutput( m_hListener, "PressedAttack",  AddKeyframe );
-		VS.AddOutput( m_hListener, "PressedAttack2", RemoveKeyframe );
+		VS.AddOutput( m_hListener, "PressedAttack",  OnMouse1Down );
+		VS.AddOutput( m_hListener, "PressedAttack2", OnMouse2Down );
+		VS.AddOutput( m_hListener, "UnpressedAttack",  OnMouse1Release );
+		// VS.AddOutput( m_hListener, "UnpressedAttack2", OnMouse2Release );
 	}
 	else
 	{
-		m_hListener.DisconnectOutput("PressedAttack","PressedAttack");
-		m_hListener.DisconnectOutput("PressedAttack2","PressedAttack2");
+		// m_hListener.DisconnectOutput("PressedAttack","PressedAttack");
+		// m_hListener.DisconnectOutput("PressedAttack2","PressedAttack2");
+		m_hListener.DisconnectOutput("UnpressedAttack","UnpressedAttack");
+		// m_hListener.DisconnectOutput("UnpressedAttack2","UnpressedAttack2");
 	};
 }
 
+VS.AddOutput( m_hListener, "UnpressedAttack2", null );
 VS.AddOutput( m_hListener, "PressedMoveRight",  "_KF_.KEY_ROLL_1(1)" );
 VS.AddOutput( m_hListener, "UnpressedMoveRight","_KF_.KEY_ROLL_1(0)" );
 VS.AddOutput( m_hListener, "PressedMoveLeft",   "_KF_.KEY_ROLL_0(1)" );
@@ -841,6 +859,59 @@ function KEY_FOV_0(i)
 }
 
 //--------------------------------------------------------------
+//--------------------------------------------------------------
+
+function OnMouse1Down()
+{
+	if ( m_bReplaceOnClick )
+	{
+		ReplaceKeyframe();
+		m_bReplaceOnClick = false;
+		ToggleFrameThink( false );
+		m_nSelectedKeyframe = -1;
+		return;
+	};
+
+	if ( m_bInsertOnClick )
+	{
+		InsertKeyframe();
+		m_bInsertOnClick = false;
+		ToggleFrameThink( false );
+		m_nSelectedKeyframe = -1;
+		return;
+	};
+
+	if ( m_fPathSelection != 0 )
+		return SelectPath();
+
+	if ( m_bSeeing )
+		return NextKeyframe();
+
+	if ( m_bGizmoEnabled )
+		return GizmoOnMouseDown();
+
+	return AddKeyframe();
+}
+
+function OnMouse1Release()
+{
+	if ( m_bGizmoEnabled )
+		return GizmoOnMouseRelease();
+}
+
+function OnMouse2Down()
+{
+	if ( m_bSeeing )
+		return PrevKeyframe();
+
+	if ( m_bGizmoEnabled )
+		return;
+
+	return RemoveKeyframe();
+}
+
+//--------------------------------------------------------------
+//--------------------------------------------------------------
 
 function ShowToggle(t)
 {
@@ -954,6 +1025,21 @@ function SelectPath()
 			local t = m_Selection[1];
 			m_Selection[1] = m_Selection[0];
 			m_Selection[0] = t;
+		};
+
+		if ( m_Selection[0] == 0 )
+		{
+			m_Selection[0] = 1;
+		};
+
+		if ( m_Selection[1] == 0 )
+		{
+			m_Selection[1] = 2;
+		};
+
+		if ( m_Selection[0] == m_Selection[1] )
+		{
+			m_Selection[1]++;
 		};
 
 		MsgHint( "Selected path" );
@@ -1118,12 +1204,10 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
 }
 
 
-local s_vecKeyMins = Vector(0,-8,-8), s_vecKeyMaxs = Vector(0,8,8);
-local s_vecMins = Vector(), s_vecMaxs = Vector();
-
+local s_vecMins = Vector();
 
 // Edit mode think
-VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins, s_vecMaxs, s_vecKeyMins, s_vecKeyMaxs )
+VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins )
 {
 	local count = m_KeyFrames.len();
 	local viewOrigin = player.EyePosition();
@@ -1199,21 +1283,22 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins, s_vecMaxs, 
 			// draw current keyframe - if not seeing and not in playback
 			if ( !m_bSeeing && curkey )
 			{
-				local dist = ( curkey.origin - viewOrigin ).Length();
-				local s;
-				if ( dist < 768.0 )
+				if ( !m_bGizmoEnabled )
 				{
-					s = dist / 128.0;
-					curkey.DrawFrustum( 255, 200, 255, s_flDisplayTime );
-				}
-				else
-				{
-					s = dist / 72.0;
-				};
-				s_vecMins.y = s_vecMins.z = -s;
-				s_vecMaxs.y = s_vecMaxs.z =  s;
+					local dist = ( curkey.origin - viewOrigin ).Length();
+					local s;
+					if ( dist < 768.0 )
+					{
+						s = dist / 128.0;
+						curkey.DrawFrustum( 255, 200, 255, s_flDisplayTime );
+					}
+					else
+					{
+						s = dist / 72.0;
+					};
 
-				DrawBoxAnglesFilled( curkey.origin, s_vecMins, s_vecMaxs, viewAngles, 255, 120, 0, 255, s_flDisplayTime );
+					DrawRectFilled( curkey.origin, s, 255, 120, 0, 255, s_flDisplayTime, viewAngles );
+				};
 			};
 
 			// draw the rest
@@ -1227,16 +1312,12 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins, s_vecMaxs, 
 				{
 					key.DrawFrustum( 255, 200, 255, s_flDisplayTime );
 
-					local s = dist / 128.0;
-					s_vecMins.y = s_vecMins.z = -s;
-					s_vecMaxs.y = s_vecMaxs.z =  s;
-
-					DrawBoxAnglesFilled( key.origin, s_vecMins, s_vecMaxs, viewAngles, 255, 0, 0, 255, s_flDisplayTime );
+					DrawRectFilled( key.origin, dist / 128.0, 255, 0, 0, 255, s_flDisplayTime, viewAngles );
 				}
 				else
 				{
 					if ( i != m_nAnimKeyframeIdx )
-						DrawBoxAnglesFilled( key.origin, s_vecKeyMins, s_vecKeyMaxs, viewAngles, 255, 0, 0, 255, s_flDisplayTime );
+						DrawRectFilled( key.origin, 8.0, 255, 0, 0, 255, s_flDisplayTime, viewAngles );
 				};
 			}
 		};
@@ -1291,7 +1372,7 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins, s_vecMaxs, 
 
 			m_nAnimPathIdx = (m_nAnimPathIdx + res) % len;
 			local origin = pPath[ offset + m_nAnimPathIdx ].origin;
-			s_vecMins.y = 0.0; s_vecMins.z = 16.0;
+			s_vecMins.x = s_vecMins.y = 0.0; s_vecMins.z = 16.0;
 			VS.DrawCapsule( origin - s_vecMins, origin + s_vecMins, 8, 0,255,255,true, s_flDisplayTime );
 
 			// Path selection:
@@ -1331,7 +1412,7 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins, s_vecMaxs, 
 }, this );
 
 
-VS.OnTimer( m_hThinkAnim, function() : ( s_vecMins, s_vecMaxs, s_vecKeyMins, s_vecKeyMaxs )
+VS.OnTimer( m_hThinkAnim, function()
 {
 	if ( m_bShowKeys )
 	{
@@ -1349,14 +1430,12 @@ VS.OnTimer( m_hThinkAnim, function() : ( s_vecMins, s_vecMaxs, s_vecKeyMins, s_v
 				if ( dist < 768.0 )
 				{
 					local s = dist / 128.0;
-					s_vecMins.y = s_vecMins.z = -s;
-					s_vecMaxs.y = s_vecMaxs.z =  s;
 
-					DrawBoxAnglesFilled( key.origin, s_vecMins, s_vecMaxs, CurrentViewAngles(), 0, 255, 255, 255, 0.7 );
+					DrawRectFilled( key.origin, s, 155, 255, 255, 255, 0.7, CurrentViewAngles() );
 				}
 				else
 				{
-					DrawBoxAnglesFilled( key.origin, s_vecKeyMins, s_vecKeyMaxs, CurrentViewAngles(), 0, 255, 255, 255, 0.7 );
+					DrawRectFilled( key.origin, 8.0, 155, 255, 255, 255, 0.7, CurrentViewAngles() );
 				}
 			}
 			else if ( m_bSeeing )
@@ -1368,11 +1447,8 @@ VS.OnTimer( m_hThinkAnim, function() : ( s_vecMins, s_vecMaxs, s_vecKeyMins, s_v
 					key.up,
 					90.0, 1.77778, 16 );
 
-				s_vecMaxs.y = s_vecMaxs.z =  0.5;
-				s_vecMins.y = s_vecMins.z = -0.5;
-
-				DrawBoxAnglesFilled( worldPos, s_vecMins, s_vecMaxs, key.angles, 0, 255, 255, 96, 0.25 );
-				DrawBoxAnglesFilled( worldPos, s_vecMins, s_vecMaxs, key.angles, 0, 255, 255, 64, 0.5 );
+				DrawRectFilled( worldPos, 0.5, 155, 255, 255, 96, 0.25, key.angles );
+				DrawRectFilled( worldPos, 0.5, 155, 255, 255, 64, 0.5, key.angles );
 			};;
 		};
 	};
@@ -1383,18 +1459,21 @@ VS.OnTimer( m_hThinkAnim, function() : ( s_vecMins, s_vecMaxs, s_vecKeyMins, s_v
 // TODO: use SetThink
 local FrameThink = function()
 {
+	if ( m_bGizmoEnabled )
+		ManipulatorThink( m_KeyFrames[ m_nCurKeyframe ], MainViewOrigin(), MainViewForward(), MainViewAngles() );
+
 	// indicate the camera is in a special state
 	// TODO: use an overlay
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
 		local worldPos = VS.ScreenToWorld( 0.5, 0.63,
-			player.EyePosition(),
-			playerEye.GetForwardVector(),
-			playerEye.GetLeftVector(),
-			playerEye.GetUpVector(),
+			MainViewOrigin(),
+			MainViewForward(),
+			MainViewRight(),
+			MainViewUp(),
 			90.0, 1.77778, 16 );
 
-		local angles = playerEye.GetAngles();
+		local angles = MainViewAngles();
 
 		local maxs = Vector( 0.0, 5.0, 0.25 );
 		local mins = Vector( 0.0, -5.0, -0.25 );
@@ -1420,9 +1499,7 @@ local FrameThink = function()
 	// animate kf_transform
 	if ( m_pLerpTransform )
 	{
-		local angles = playerEye.GetAngles();
-		local maxs = Vector( 0.0, 5.0, 5.0 );
-		local mins = Vector( 0.0, -5.0, -5.0 );
+		local angles = MainViewAngles();
 
 		local org = Vector();
 		local c = m_pLerpTransform.len();
@@ -1433,7 +1510,7 @@ local FrameThink = function()
 				m_KeyFrames[i].origin,
 				VS.SmoothCurve( m_flLerpTransformAnim ),
 				org );
-			DrawBoxAnglesFilled( org, mins, maxs, angles, 155, 100, 155, 255, 0.075 );
+			DrawRectFilled( org, 5, 155, 100, 155, 255, 0.075, angles )
 		}
 
 		m_flLerpTransformAnim += 0.01;
@@ -1481,11 +1558,506 @@ function ToggleFrameThink( b )
 	}
 	else
 	{
-		if ( !m_bInsertOnClick && !m_bReplaceOnClick && !m_pLerpFrustum && !m_pLerpTransform )
+		if ( !m_bInsertOnClick && !m_bReplaceOnClick && !m_pLerpFrustum && !m_pLerpTransform && !m_bGizmoEnabled )
 		{
 			EntFireByHandle( m_hThinkFrame, "Disable" );
 		}
 	}
+}
+
+
+//--------------------------------------------------------------
+//--------------------------------------------------------------
+
+
+g_v100 <- Vector(1,0,0);
+g_v010 <- Vector(0,1,0);
+g_v001 <- Vector(0,0,1);
+
+local vAxisMin = Vector( -1, -1, -1 );
+local vAxisMax = Vector( 32, 1, 1 );
+
+local vPlaneMin = Vector();
+local vPlaneMax = Vector();
+
+local vRectMin = Vector();
+local vRectMax = Vector();
+
+function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRectMax )
+{
+	if ( s != vRectMax.z )
+	{
+		vRectMin.y = vRectMin.z = -s;
+		vRectMax.y = vRectMax.z =  s;
+	};
+	return DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r,g,b,a, t );
+}
+
+function DrawGrid( pos, up, right, time )
+{
+	pos += up * 64.0 - right * 80.0;
+	for ( local i = 0; i <= 8; ++i )
+	{
+		pos += right * 16.0;
+		local v1 = pos - up * 128.0;
+		DrawLine( pos, v1, 100, 140, 220, true, time );
+	}
+	for ( local i = 0; i <= 8; ++i )
+	{
+		local v1 = pos - right * 128.0;
+		DrawLine( pos, v1, 100, 140, 220, true, time );
+		pos -= up * 16.0;
+	}
+}
+
+
+// Very basic screen plane, axis and plane translation manipulator.
+// FIXME: Because of the drawing order parts of the axes lag behind while moving
+
+function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
+	: ( vAxisMin, vAxisMax, vPlaneMin, vPlaneMax )
+{
+	local vecCursor;
+
+	if ( !IsDucking() )
+	{
+		// if not ducking and dont have a selection (axis or plane)
+		if ( !m_nTranslation )
+		{
+			key.DrawFrustum( 255, 200, 255, -1 );
+
+			local deltaOrigin = viewOrigin - key.origin;
+			local t;
+
+			local rayDelta = viewForward * 2048.0;
+			local nSelection;
+
+			// Screen plane translation
+			if ( VS.IsRayIntersectingSphere( viewOrigin, rayDelta, key.origin, 6.0 ) )
+			{
+				nSelection = 1;
+				DrawRectFilled( key.origin, 4, 0,255,255,255, -1, viewAngles );
+			}
+			else
+			{
+				DrawRectFilled( key.origin, 4, 255,120,0,255, -1, viewAngles );
+			};
+
+
+			// Local camera axes looking down +z
+
+			// test Z
+			vAxisMax.x = vAxisMax.y = 1.0; vAxisMax.z = 32.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 2;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v010, 0.0 );
+				DrawBox( key.origin, vAxisMin, vAxisMax, 120,120,255,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 0,0,255,255, -1 );
+			};
+
+
+			// test X
+			vAxisMax.z = vAxisMax.y = 1.0; vAxisMax.x = 32.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 3;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v001, 0.0 );
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,120,120,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,0,0,255, -1 );
+			};
+
+
+			// test Y
+			vAxisMax.x = vAxisMax.z = 1.0; vAxisMax.y = 32.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 4;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v001, 0.0 );
+				DrawBox( key.origin, vAxisMin, vAxisMax, 180,255,120,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 0,255,0,255, -1 );
+			};
+
+
+			// test XY
+			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = 11.0;
+			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = 20.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 5;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v001, 0.0 );
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 120,120,255,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 0,0,255,255, -1 );
+			};
+
+
+			// test YZ
+			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = 11.0;
+			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = 20.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 6;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v100, 0.0 );
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,120,120,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,0,0,255, -1 );
+			};
+
+
+			// test XZ
+			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = 11.0;
+			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = 20.0;
+
+			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
+			{
+				nSelection = 7;
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, g_v010, 0.0 );
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 180,255,180,255, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 0,255,0,255, -1 );
+			};
+
+
+			// default to screen plane
+			if ( !t )
+				t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, viewForward*-1, 0.0 );
+			vecCursor = viewOrigin + viewForward * t;
+
+			if ( nSelection )
+			{
+				if ( m_bMouseDown )
+				{
+					m_nTranslation = nSelection;
+					m_nSelectedKeyframe = m_nCurKeyframe;
+
+					m_vecOffset = vecCursor - key.origin;
+					VS.VectorCopy( key.origin, m_vecLastKeyOrigin );
+					m_vecLastDeltaOrigin = deltaOrigin;
+					m_vecLastOrigin = viewOrigin;
+					m_vecLastForward = viewForward;
+					m_vecLastUp = MainViewUp();
+					m_vecLastRight = MainViewRight();
+
+					// HACKHACK: can't be bothered to find a proper solution to moving view angles while translating
+					// so just freeze the player in place so the planes don't mess up
+					player.__KeyValueFromInt( "movetype", 0 );
+				}
+				else if ( m_nMouseOver != nSelection )
+				{
+					m_nMouseOver = nSelection;
+					PlaySound( "UI.PageScroll" );
+				};;
+			}
+			else if ( m_nMouseOver )
+			{
+				m_nMouseOver = 0;
+			};;
+		}
+		// if not ducking and have a selection (axis or plane)
+		else
+		{
+			local nSelection = m_nTranslation;
+			// Assert( nSelection, "m_nTranslation == 0" );
+
+
+			if ( nSelection == 1 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, m_vecLastForward*-1, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.SetOrigin( vecCursor - m_vecOffset );
+
+				DrawRectFilled( key.origin, 4, 255,255,0,255, -1, viewAngles );
+				DrawGrid( key.origin, m_vecLastUp, m_vecLastRight, -1 );
+			}
+			else
+			{
+				DrawRectFilled( key.origin, 4, 255,120,0,255, -1, viewAngles );
+			};
+
+
+			// Z
+			vAxisMax.x = vAxisMax.y = 1.0; vAxisMax.z = 32.0;
+
+			if ( nSelection == 2 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.z = vecCursor.z - m_vecOffset.z;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v001, g_v100, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 0,0,255,255, -1 );
+			};
+
+
+			// X
+			vAxisMax.z = vAxisMax.y = 1.0; vAxisMax.x = 32.0;
+
+			if ( nSelection == 3 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.x = vecCursor.x - m_vecOffset.x;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v100, g_v010, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,0,0,255, -1 );
+			};
+
+
+			// Y
+			vAxisMax.x = vAxisMax.z = 1.0; vAxisMax.y = 32.0;
+
+			if ( nSelection == 4 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.y = vecCursor.y - m_vecOffset.y;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vAxisMin, vAxisMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v010, g_v100, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vAxisMin, vAxisMax, 0,255,0,255, -1 );
+			};
+
+
+			// XY
+			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = 11.0;
+			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = 20.0;
+
+			if ( nSelection == 5 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.x = vecCursor.x - m_vecOffset.x;
+				key.origin.y = vecCursor.y - m_vecOffset.y;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v010, g_v100, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 0,0,255,255, -1 );
+			};
+
+
+			// YZ
+			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = 11.0;
+			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = 20.0;
+
+			if ( nSelection == 6 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v100, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.y = vecCursor.y - m_vecOffset.y;
+				key.origin.z = vecCursor.z - m_vecOffset.z;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v010, g_v001, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,0,0,255, -1 );
+			};
+
+
+			// XZ
+			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = 11.0;
+			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = 20.0;
+
+			if ( nSelection == 7 )
+			{
+				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
+				if ( t > 1024.0 )	t = 1024.0;
+				else if ( t < 0.0 )	t = 0.0;;
+				vecCursor = m_vecLastOrigin + viewForward * t;
+
+				key.origin.x = vecCursor.x - m_vecOffset.x;
+				key.origin.z = vecCursor.z - m_vecOffset.z;
+				key.SetOrigin( key.origin );
+
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 255,255,0,255, -1 );
+				DrawGrid( key.origin, g_v100, g_v001, -1 );
+			}
+			else
+			{
+				DrawBox( key.origin, vPlaneMin, vPlaneMax, 0,255,0,255, -1 );
+			};
+
+
+			vAxisMax.x = 0.0; vAxisMax.y = vAxisMax.z = 2.0;
+			DrawBoxAnglesFilled( m_vecLastKeyOrigin, vAxisMax*-1, vAxisMax, viewAngles, 255,255,255,64, -1 );
+			DrawLine( m_vecLastKeyOrigin, key.origin, 255,255,255,true, -1 );
+		};
+
+		// stopped ducking
+		if ( m_vecCameraOffset )
+		{
+			m_vecCameraOffset = null;
+			m_nSelectedKeyframe = -1;
+		};
+	}
+	// ducking, rotate camera around cursor
+	else
+	{
+		key.DrawFrustum( 255, 200, 255, -1 );
+
+		vecCursor = key.origin;
+
+		if ( m_bMouseDown )
+		{
+			if ( !m_vecCameraOffset )
+			{
+				m_nSelectedKeyframe = m_nCurKeyframe;
+				m_vecCameraOffset = viewOrigin - vecCursor;
+				m_vecLastForwardFrame = viewForward;
+			}
+			else
+			{
+				local deltaForward = viewForward - m_vecLastForwardFrame;
+
+				if ( !VS.VectorIsZero( deltaForward ) )
+				{
+					local pos = vecCursor - viewForward * m_vecCameraOffset.Length();
+					pos.z -= 48.0;
+					player.SetOrigin( pos );
+				};
+
+				m_vecLastForwardFrame = viewForward;
+			};
+		};
+	};
+
+	// draw cursor
+	DrawRectFilled( vecCursor, 2, 255,255,255,255, -1, viewAngles );
+}
+
+function GizmoOnMouseDown()
+{
+	// PushUndo( "translation" );
+
+	m_bMouseDown = true;
+}
+
+function GizmoOnMouseRelease()
+{
+	// PushRedo( "translation" );
+
+	if ( !IsDucking() )
+	{
+		m_nSelectedKeyframe = -1;
+		m_bDirty = true;
+	};
+	if ( m_nTranslation )
+		PlaySound( "UI.StickerSelect" );
+	m_nTranslation = 0;
+	m_bMouseDown = false;
+	player.__KeyValueFromInt( "movetype", 8 );
+
+	// compile path around key
+	local max = m_KeyFrames.len()-2;
+
+	// is there enough path frames?
+	if ( (((max-2)* m_nSampleCount) + m_nSampleCount - 1) in m_PathData )
+	{
+		local cur = m_nCurKeyframe;
+		if ( cur <= 1 )
+			cur = 2;
+		else if ( cur >= max )
+			cur = max-1;;
+
+		for ( local w,t,nSampleFrame,nKey = cur-1; nKey < cur+1; ++nKey )
+		{
+			w = (nKey-1) * m_nSampleCount;
+			for ( nSampleFrame = 0, t = 0.0; 1.0 - t > KF_FLT_EPS; ++nSampleFrame, t += m_flSampleRate )
+			{
+				local org = Vector();
+				local ang = Vector();
+				_Process.SplineOrigin( nKey, t, org );
+				_Process.SplineAngles( nKey, t, ang );
+				m_PathData[ w + nSampleFrame ].origin = org;
+				m_PathData[ w + nSampleFrame ].angles = ang;
+			}
+		}
+	};
+}
+
+function ShowGizmo( i = null )
+{
+	if ( i == null )
+		i = !m_bGizmoEnabled;
+
+	if ( i && !m_KeyFrames.len() )
+		return MsgFail("No keyframes found.\n");
+
+	m_bGizmoEnabled = !!i;
+	ToggleFrameThink( m_bGizmoEnabled );
+
+	Msg("Translation manipulator " + m_bGizmoEnabled.tointeger() + "\n");
+
+	if ( m_bGizmoEnabled )
+	{
+		m_hThinkAnim.__KeyValueFromFloat( "nextthink", -1 );
+		m_nAnimKeyframeIdx = -1;
+	}
+	else
+	{
+		m_hThinkAnim.__KeyValueFromFloat( "nextthink", 1 );
+	};
+
+	PlaySound( SND_BUTTON );
 }
 
 
@@ -1845,6 +2417,9 @@ function RemoveKeyframe() : (MAX_COORD_VEC)
 		// unselect
 		m_nSelectedKeyframe = -1;
 
+		m_bGizmoEnabled = false;
+		ToggleFrameThink( false );
+
 		// cheap way to hide the sprite
 		SetHelperOrigin( MAX_COORD_VEC );
 	}
@@ -1896,31 +2471,8 @@ function AddKeyframe()
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
 
-	if ( m_bReplaceOnClick )
-	{
-		ReplaceKeyframe();
-		m_bReplaceOnClick = false;
-		ToggleFrameThink( false );
-		m_nSelectedKeyframe = -1;
-		return;
-	};
-
-	if ( m_bInsertOnClick )
-	{
-		InsertKeyframe();
-		m_bInsertOnClick = false;
-		ToggleFrameThink( false );
-		m_nSelectedKeyframe = -1;
-		return;
-	};
-
 	if ( m_bSeeing )
 		return MsgFail("Cannot add new keyframe while seeing!\n");
-
-	if ( m_fPathSelection != 0 )
-	{
-		return SelectPath();
-	};
 
 	PushUndo( "add" );
 
@@ -1973,6 +2525,9 @@ function RemoveAllKeyframes():(MAX_COORD_VEC)
 	PushRedo( "clear" );
 
 	m_bDirty = true;
+
+	m_bGizmoEnabled = false;
+	ToggleFrameThink( false );
 
 	// cheap way to hide the sprite
 	SetHelperOrigin( MAX_COORD_VEC );
@@ -3852,6 +4407,7 @@ function PrintCmd()
 	Msg("kf_auto_fill_boundaries : Duplicate the first and last keyframes in compilation\n");
 	Msg("                        :\n");
 	Msg("kf_edit                 : Toggle edit mode\n");
+	Msg("kf_translate            : Toggle 3D translation manipulator\n");
 	Msg("kf_select_path          : In edit mode, select path\n");
 	Msg("kf_see                  : In edit mode, see the current selection\n");
 	Msg("kf_next                 : While holding a keyframe, select the next one\n");

@@ -5,7 +5,7 @@ Quick smooth camera path creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.0-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.1-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 
@@ -68,6 +68,7 @@ Command                | Description
 `kf_auto_fill_boundaries`| Duplicate the first and last keyframes in compilation
 ---                    | ---
 `kf_edit`              | Toggle edit mode
+`kf_translate`         | Toggle 3D translation manipulator
 `kf_select_path`       | In edit mode, select path
 `kf_see`               | In edit mode, see the current selection.
 `kf_next`              | While holding a keyframe, select the next one
@@ -101,6 +102,7 @@ Default Key Binds    | Command                        | Game command to listen
 Suggested Key Binds  | Command
 :-------------------:|---------------
 `F`                  | `kf_select_path`
+`G`                  | `kf_translate`
 `Z`                  | `kf_undo`
 `X`                  | `kf_redo`
 `C`                  | `kf_replace`
@@ -130,9 +132,15 @@ You may also select a portion of the compiled path with `kf_select_path` to play
 
 `kf_transform( int index, Vector offset, Vector rotation )`: index is the index of a keyframe to pivot the transform. If index is -1, average position of all keyframes is used as pivot point; if index is -2, current camera position (player) is used as pivot point.
 
-Example: `script kf_transform( 1, null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees horizontally (yaw) around keyframe 1.
+Example: `script kf_transform( 2, null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees horizontally (yaw) around keyframe 2.
 
 Example: `script kf_transform( 0, Vector(0, 0, 64), null )` moves all keyframes 64 units vertically.
+
+![](../assets/gizmo1.gif)
+
+Use the translation manipulator (`kf_translate`) to easily move keyframes to see their effects on the live updated path.
+
+Hold CTRL (`+duck`) and MOUSE1 (`+attack`) to rotate around the current keyframe.
 
 
 ## Changelog

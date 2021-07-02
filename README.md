@@ -5,7 +5,7 @@ Quick smooth camera path creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.1-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.2-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 
@@ -105,8 +105,10 @@ Suggested Key Binds  | Command
 `G`                  | `kf_translate`
 `Z`                  | `kf_undo`
 `X`                  | `kf_redo`
-`C`                  | `kf_replace`
-`V`                  | `kf_insert`
+`R`                  | `kf_replace`
+`T`                  | `kf_insert`
+`C`                  | `+movedown`
+`V`                  | `+moveup`
 
 
 ### File export

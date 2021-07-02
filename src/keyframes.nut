@@ -1,14 +1,14 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.1 --------------------------------------------------------------
+//- v1.2.2 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_math2");
 IncludeScript("vs_library/vs_interp");
 IncludeScript("vs_library/vs_collision");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.1" };;
+	::_KF_ <- { version = "1.2.2" };;
 
 local _ = function(){
 
@@ -136,6 +136,7 @@ if ( !("_Process" in this) )
 	m_bGizmoEnabled <- false;
 	m_bMouseDown <- false;
 	m_nTranslation <- 0;
+	m_bDuckFixup <- false;
 
 	m_vecLastForwardFrame <- null;
 	m_vecCameraOffset <- null;
@@ -901,6 +902,24 @@ function OnMouse1Release()
 
 function OnMouse2Down()
 {
+	if ( m_bReplaceOnClick || m_bInsertOnClick )
+	{
+		m_bReplaceOnClick = false;
+		m_bInsertOnClick = false;
+		ToggleFrameThink( false );
+		m_nSelectedKeyframe = -1;
+		MsgHint("Cancelled\n");
+		return;
+	};
+
+	if ( m_fPathSelection != 0 )
+	{
+		m_Selection[0] = m_Selection[1] = 0;
+		m_fPathSelection = 0;
+		MsgHint( "Cleared path selection.\n" );
+		return;
+	};
+
 	if ( m_bSeeing )
 		return PrevKeyframe();
 
@@ -1210,8 +1229,8 @@ local s_vecMins = Vector();
 VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins )
 {
 	local count = m_KeyFrames.len();
-	local viewOrigin = player.EyePosition();
-	local viewForward = playerEye.GetForwardVector();
+	local viewOrigin = MainViewOrigin();
+	local viewForward = MainViewForward();
 	local nNearestKey;
 
 	if ( count )
@@ -1948,10 +1967,26 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			m_vecCameraOffset = null;
 			m_nSelectedKeyframe = -1;
 		};
+
+		if ( m_bDuckFixup )
+		{
+			local v = player.GetOrigin();
+			v.z -= 9.017594;
+			player.SetOrigin( v );
+			m_bDuckFixup = false;
+		};
 	}
 	// ducking, rotate camera around cursor
 	else
 	{
+		if ( !m_bDuckFixup )
+		{
+			local v = player.GetOrigin();
+			v.z += 9.017594;
+			player.SetOrigin( v );
+			m_bDuckFixup = true;
+		};
+
 		key.DrawFrustum( 255, 200, 255, -1 );
 
 		vecCursor = key.origin;
@@ -2000,9 +2035,13 @@ function GizmoOnMouseRelease()
 		m_nSelectedKeyframe = -1;
 		m_bDirty = true;
 	};
+
 	if ( m_nTranslation )
+	{
 		PlaySound( "UI.StickerSelect" );
-	m_nTranslation = 0;
+		m_nTranslation = 0;
+	};
+
 	m_bMouseDown = false;
 	player.__KeyValueFromInt( "movetype", 8 );
 
@@ -2300,9 +2339,9 @@ function ReplaceKeyframe()
 	// animate it 5 times
 	VS.EventQueue.AddEvent( StopReplaceLerp, 5 * 100 * FrameTime(), this );
 
-	local pos = player.EyePosition();
-	local ang = playerEye.GetAngles();
-	local dir = playerEye.GetForwardVector();
+	local pos = MainViewOrigin();
+	local ang = MainViewAngles();
+	local dir = MainViewForward();
 
 	key.SetAngles( ang );
 	key.SetOrigin( pos );
@@ -2345,9 +2384,9 @@ function InsertKeyframe()
 		return;
 	};
 
-	local pos = player.EyePosition();
-	local ang = playerEye.GetAngles();
-	local dir = playerEye.GetForwardVector();
+	local pos = MainViewOrigin();
+	local ang = MainViewAngles();
+	local dir = MainViewForward();
 
 	PushUndo( "insert" );
 
@@ -2378,24 +2417,6 @@ function RemoveKeyframe() : (MAX_COORD_VEC)
 
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to remove keyframes.\n");
-
-	if ( m_fPathSelection != 0 )
-	{
-		m_Selection[0] = m_Selection[1] = 0;
-		m_fPathSelection = 0;
-		MsgHint( "Cleared path selection.\n" );
-		return;
-	};
-
-	if ( m_bReplaceOnClick || m_bInsertOnClick )
-	{
-		m_bReplaceOnClick = false;
-		m_bInsertOnClick = false;
-		ToggleFrameThink( false );
-		m_nSelectedKeyframe = -1;
-		MsgHint("cancelled\n");
-		return;
-	};
 
 	// unsee
 	if ( m_bSeeing )
@@ -2476,9 +2497,9 @@ function AddKeyframe()
 
 	PushUndo( "add" );
 
-	local pos = player.EyePosition();
-	local ang = playerEye.GetAngles();
-	local dir = playerEye.GetForwardVector();
+	local pos = MainViewOrigin();
+	local ang = MainViewAngles();
+	local dir = MainViewForward();
 
 	local key = keyframe_t();
 	key.SetOrigin( pos );
@@ -2998,8 +3019,12 @@ function _Process::FinishCompile() : (g_FrameTime)
 		m_pSquadErrors = null;
 	};
 
+	if ( m_Selection[1] >= m_PathData.len() )
+	{
+		m_Selection[0] = m_Selection[1] = 0;
+	};
+
 	m_bCompiling = false;
-	m_Selection[0] = m_Selection[1] = 0;
 	SetEditModeTemp( m_bInEditMode );
 
 	Msg("\nCompilation complete.\n");
@@ -3133,13 +3158,13 @@ function _Process::SmoothOrigin( r ) : (g_FrameTime)
 
 	if ( m_Selection[0] && m_Selection[1] )
 	{
-		i = m_Selection[0] + 2;
-		c = m_Selection[1] - 2;
+		i = m_Selection[0] + r;
+		c = m_Selection[1] - r;
 	}
 	else
 	{
-		i = 2;
-		c = m_PathData.len() - 2;
+		i = r;
+		c = m_PathData.len() - r;
 	};
 
 	local stack = [];
@@ -4363,10 +4388,12 @@ function WelcomeMsg()
 	Msg("\n");
 	PrintCmd();
 
-	if ( !VS.IsInteger( 128.0 / VS.GetTickrate() ) )
+	local tr = 1.0/FrameTime();
+
+	if ( !VS.IsInteger( 128.0 / tr ) )
 	{
-		Msg(Fmt( "[!] Invalid tickrate (%g)! Only 128 and 64 tickrates are supported.\n", VS.GetTickrate() ));
-		Chat(Fmt( "%s[!] %sInvalid tickrate ( %s%g%s )! Only 128 and 64 tickrates are supported.", txt.red, txt.white, txt.yellow, VS.GetTickrate(), txt.white ));
+		Msg(Fmt( "[!] Invalid tickrate (%g)! Only 128 and 64 tickrates are supported.\n", tr ));
+		Chat(Fmt( "%s[!] %sInvalid tickrate ( %s%g%s )! Only 128 and 64 tickrates are supported.", txt.red, txt.white, txt.yellow, tr, txt.white ));
 	};
 
 	delete WelcomeMsg;

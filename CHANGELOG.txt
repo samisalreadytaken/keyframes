@@ -3,6 +3,12 @@
 
 --------------------------------
 
+2021-07-02 [v1.2.2]
+- Fixed origin smoothing at variable radii
+- Fixed right click cancellation regression introduced in v1.2.1
+- Path selection no longer resets on compile
+- Fixed crouching view offset
+
 2021-06-30 [v1.2.1]
 - Added 3D translation manipulator (kf_translate)
 - Fixed kf_select_path edge cases

@@ -3,6 +3,12 @@
 
 --------------------------------
 
+2021-07-05 [v1.2.3]
+- Fixed D3DX interpolator key alignment
+- Fixed replace and insert not turning off when executed with their respective commands instead of clicking
+- Fixed translation manipulator marking path dirty and compiling while it was not changed
+- Fixed angle restoration on playback end
+
 2021-07-02 [v1.2.2]
 - Fixed origin smoothing at variable radii
 - Fixed right click cancellation regression introduced in v1.2.1

@@ -3,6 +3,9 @@
 
 --------------------------------
 
+2021-07-19 [v1.2.4]
+- Fixed translation manipulator rotation stutter and other bugs
+
 2021-07-05 [v1.2.3]
 - Fixed D3DX interpolator key alignment
 - Fixed replace and insert not turning off when executed with their respective commands instead of clicking

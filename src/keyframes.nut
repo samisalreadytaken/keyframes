@@ -1,14 +1,14 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.3 --------------------------------------------------------------
+//- v1.2.4 --------------------------------------------------------------
 IncludeScript("vs_library");
 IncludeScript("vs_library/vs_math2");
 IncludeScript("vs_library/vs_interp");
 IncludeScript("vs_library/vs_collision");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.3" };;
+	::_KF_ <- { version = "1.2.4" };;
 
 local _ = function(){
 
@@ -135,6 +135,7 @@ if ( !("_Process" in this) )
 	m_nMouseOver <- 0;
 	m_bGizmoEnabled <- false;
 	m_bMouseDown <- false;
+	m_bMouseForceUp <- false;
 	m_nTranslation <- 0;
 	m_bDuckFixup <- false;
 
@@ -277,6 +278,11 @@ function CameraSetAngles(v) : (m_hCam)
 	return m_hCam.SetAngles(v.x,v.y,v.z);
 }
 
+function CameraSetForward(v) : (m_hCam)
+{
+	return m_hCam.SetForwardVector(v);
+}
+
 function CameraSetOrigin(v) : (m_hCam)
 {
 	return m_hCam.SetOrigin(v);
@@ -303,10 +309,15 @@ function PlaySound(s)
 	return player.EmitSound(s);
 }
 
-local ShowHudHint = VS.ShowHudHint;
-function Hint(s):(ShowHudHint,m_hHudHint)
+function Hint(s)
 {
-	return ShowHudHint( m_hHudHint, player, s );
+	m_hHudHint.__KeyValueFromString( "message", s );
+	return EntFireByHandle( m_hHudHint, "ShowHudHint", "", 0.0, player );
+}
+
+function HideHudHint( t = 0.0 )
+{
+	return EntFireByHandle( m_hHudHint, "HideHudHint", "", t, player );
 }
 
 function Error(s)
@@ -1203,7 +1214,7 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
 		if ( bShowMsg )
 		{
 			Msg("Stopped seeing keyframe\n");
-			VS.HideHudHint( m_hHudHint, player );
+			HideHudHint();
 		};
 	};
 
@@ -1628,6 +1639,22 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 	if ( !IsDucking() )
 	{
+		// stopped ducking
+		if ( m_vecCameraOffset )
+		{
+			CameraSetEnabled(0);
+			m_vecCameraOffset = null;
+			m_nSelectedKeyframe = -1;
+
+			// if duck was let go before mouse while rotating,
+			// remember this for when duck is held again without releasing mouse
+			if ( m_bMouseDown )
+			{
+				m_bMouseDown = false;
+				m_bMouseForceUp = true;
+			};
+		};
+
 		// if not ducking and dont have a selection (axis or plane)
 		if ( !m_nTranslation )
 		{
@@ -1949,13 +1976,6 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			DrawLine( m_vecLastKeyOrigin, key.origin, 255,255,255,true, -1 );
 		};
 
-		// stopped ducking
-		if ( m_vecCameraOffset )
-		{
-			m_vecCameraOffset = null;
-			m_nSelectedKeyframe = -1;
-		};
-
 		if ( m_bDuckFixup )
 		{
 			local v = player.GetOrigin();
@@ -1965,7 +1985,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 		};
 	}
 	// ducking, rotate camera around cursor
-	else
+	else if ( !m_nTranslation )
 	{
 		if ( !m_bDuckFixup )
 		{
@@ -1975,14 +1995,29 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			m_bDuckFixup = true;
 		};
 
+		if ( m_bMouseForceUp )
+		{
+			m_bMouseDown = true;
+			m_bMouseForceUp = false;
+		};
+
 		key.DrawFrustum( 255, 200, 255, -1 );
 
 		vecCursor = key.origin;
+		// local deltaOrigin = viewOrigin - key.origin;
+		// local t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, viewForward*-1, 0.0 );
+		// vecCursor = viewOrigin + viewForward * t;
 
 		if ( m_bMouseDown )
 		{
 			if ( !m_vecCameraOffset )
 			{
+				CameraSetEnabled(1);
+				CameraSetOrigin( viewOrigin );
+				CameraSetForward( viewForward );
+
+				// m_vecPivotPoint = vecCursor;
+
 				m_nSelectedKeyframe = m_nCurKeyframe;
 				m_vecCameraOffset = viewOrigin - vecCursor;
 				m_vecLastForwardFrame = viewForward;
@@ -1993,15 +2028,30 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 				if ( !VS.VectorIsZero( deltaForward ) )
 				{
+					// m_vecPivotPoint
 					local pos = vecCursor - viewForward * m_vecCameraOffset.Length();
-					pos.z -= 48.0;
+					CameraSetOrigin( pos );
+					CameraSetForward( viewForward );
+
+					pos.z -= 46.0;
 					player.SetOrigin( pos );
 				};
 
 				m_vecLastForwardFrame = viewForward;
 			};
-		};
-	};
+		}
+		else if ( m_vecCameraOffset )
+		{
+			CameraSetEnabled(0);
+			m_vecCameraOffset = null;
+			m_nSelectedKeyframe = -1;
+		};;
+	}
+	// ducking while translating
+	else
+	{
+		vecCursor = key.origin;
+	};;
 
 	// draw cursor
 	DrawRectFilled( vecCursor, 2, 255,255,255,255, -1, viewAngles );
@@ -2019,6 +2069,7 @@ function GizmoOnMouseRelease()
 	// PushRedo( "translation" );
 
 	m_bMouseDown = false;
+	m_bMouseForceUp = false;
 	player.__KeyValueFromInt( "movetype", 8 );
 
 	if ( m_nTranslation )
@@ -4130,7 +4181,7 @@ function Play( type = 0 )
 	AddEvent( PlaySound, 2.0, [this, "UI.CounterBeep"]   );
 
 	player.SetHealth(1337);
-	VS.HideHudHint( m_hHudHint, player, 3.0 );
+	HideHudHint( 3.0 );
 
 	m_bPlaybackPending = true;
 	AddEvent( _Play, 3.0, this );
@@ -4153,7 +4204,7 @@ function Stop() : (g_FrameTime)
 		VS.EventQueue.CancelEventsByInput( _Play );
 		VS.EventQueue.CancelEventsByInput( MsgHint );
 		VS.EventQueue.CancelEventsByInput( PlaySound );
-		VS.HideHudHint( m_hHudHint, player, 0.0 );
+		HideHudHint();
 	}
 	else if ( !m_bInPlayback )
 		return MsgFail("Playback is not running.\n");;

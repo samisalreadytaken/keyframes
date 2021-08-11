@@ -3,9 +3,6 @@
 //                       github.com/samisalreadytaken
 //- v1.2.4 --------------------------------------------------------------
 IncludeScript("vs_library");
-IncludeScript("vs_library/vs_math2");
-IncludeScript("vs_library/vs_interp");
-IncludeScript("vs_library/vs_collision");
 
 if ( !("_KF_" in getroottable()) )
 	::_KF_ <- { version = "1.2.4" };;

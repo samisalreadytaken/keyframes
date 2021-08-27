@@ -1,11 +1,11 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.4 --------------------------------------------------------------
+//- v1.2.5 --------------------------------------------------------------
 IncludeScript("vs_library");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.4" };;
+	::_KF_ <- { version = "1.2.5" };;
 
 local _ = function(){
 
@@ -54,7 +54,6 @@ _VER_ <- version;
 
 SendToConsole("clear;script _KF_.PostSpawn()");
 
-VS.GetLocalPlayer();
 
 const KF_FLT_EPS = 1.e-3;
 
@@ -189,15 +188,11 @@ if ( !("_Process" in this) )
 	DrawBoxAnglesFilled <- DebugDrawBoxAngles;
 };
 
-if ( !("HPlayerEye" in getroottable()) )
-	::HPlayerEye <- VS.CreateMeasure( HPlayer.GetName(), null, true );
+player <- ToExtendedPlayer( VS.GetPlayerByIndex(1) );
 
 if ( !("m_hThinkCam" in this) )
 {
 	g_szMapName <- split( GetMapName(), "/" ).top();
-
-	player <- HPlayer;
-	playerEye <- HPlayerEye;
 
 	m_hThinkCam <- VS.Timer( true, g_FrameTime, null, null, false, true ).weakref();
 
@@ -239,8 +234,6 @@ if ( !("m_hThinkCam" in this) )
 	m_hHudHint <- VS.CreateEntity("env_hudhint",null,true).weakref();
 
 	m_hCam <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
-
-	m_hListener <- VS.CreateEntity("game_ui",{ spawnflags = 1<<7, fieldofview = -1.0 },true).weakref();
 
 	PrecacheModel("keyframes/kf_circle_orange.vmt");
 
@@ -292,7 +285,7 @@ function CameraSetFov( n, f ) : (m_hCam)
 
 function CameraSetEnabled( b ) : (m_hCam)
 {
-	return EntFireByHandle( m_hCam, b ? "Enable" : "Disable", "", 0.0, player );
+	return EntFireByHandle( m_hCam, b ? "Enable" : "Disable", "", 0.0, player.self );
 }
 
 function CameraSetThink( b )
@@ -309,12 +302,12 @@ function PlaySound(s)
 function Hint(s)
 {
 	m_hHudHint.__KeyValueFromString( "message", s );
-	return EntFireByHandle( m_hHudHint, "ShowHudHint", "", 0.0, player );
+	return EntFireByHandle( m_hHudHint, "ShowHudHint", "", 0.0, player.self );
 }
 
 function HideHudHint( t = 0.0 )
 {
-	return EntFireByHandle( m_hHudHint, "HideHudHint", "", t, player );
+	return EntFireByHandle( m_hHudHint, "HideHudHint", "", t, player.self );
 }
 
 function Error(s)
@@ -381,22 +374,22 @@ function MainViewOrigin()
 
 function MainViewAngles()
 {
-	return playerEye.GetAngles();
+	return player.EyeAngles();
 }
 
 function MainViewForward()
 {
-	return playerEye.GetForwardVector();
+	return player.EyeForward();
 }
 
 function MainViewRight()
 {
-	return playerEye.GetLeftVector();
+	return player.EyeRight();
 }
 
 function MainViewUp()
 {
-	return playerEye.GetUpVector();
+	return player.EyeUp();
 }
 
 function CurrentViewOrigin()
@@ -427,7 +420,7 @@ function CurrentViewAngles()
 	}
 	else
 	{
-		return playerEye.GetAngles();
+		return player.EyeAngles();
 	}
 }
 
@@ -597,40 +590,55 @@ class keyframe_t //extends point_t
 
 //--------------------------------------------------------------
 
+local fnMoveRight1 = function(...) { return KEY_ROLL_1(1); }
+local fnMoveRight0 = function(...) { return KEY_ROLL_1(0); }
+local fnMoveLeft1  = function(...) { return KEY_ROLL_0(1); }
+local fnMoveLeft0  = function(...) { return KEY_ROLL_0(0); }
+local fnForward1   = function(...) { return KEY_FOV_1(1); }
+local fnForward0   = function(...) { return KEY_FOV_1(0); }
+local fnBack1      = function(...) { return KEY_FOV_0(1); }
+local fnBack0      = function(...) { return KEY_FOV_0(0); }
+
+
 // see mode listen WASD
 function ListenKeys(i)
+	: (fnMoveRight1, fnMoveRight0, fnMoveLeft0, fnMoveLeft1, fnForward0, fnForward1, fnBack0, fnBack1)
 {
 	if (i)
 	{
 		ListenMouse(0);
 
-		m_hListener.ConnectOutput("PressedMoveRight","PressedMoveRight");
-		m_hListener.ConnectOutput("UnpressedMoveRight","UnpressedMoveRight");
-		m_hListener.ConnectOutput("PressedMoveLeft","PressedMoveLeft");
-		m_hListener.ConnectOutput("UnpressedMoveLeft","UnpressedMoveLeft");
-		m_hListener.ConnectOutput("PressedForward","PressedForward");
-		m_hListener.ConnectOutput("UnpressedForward","UnpressedForward");
-		m_hListener.ConnectOutput("PressedBack","PressedBack");
-		m_hListener.ConnectOutput("UnpressedBack","UnpressedBack");
+		player.SetInputCallback( "+moveright", fnMoveRight1, this );
+		player.SetInputCallback( "-moveright", fnMoveRight0, this );
 
-		m_hListener.SetTeam( player.IsNoclipping().tointeger() );
+		player.SetInputCallback( "+moveleft", fnMoveLeft1, this );
+		player.SetInputCallback( "-moveleft", fnMoveLeft0, this );
+
+		player.SetInputCallback( "+forward", fnForward1, this );
+		player.SetInputCallback( "-forward", fnForward0, this );
+
+		player.SetInputCallback( "+back", fnBack1, this );
+		player.SetInputCallback( "-back", fnBack0, this );
 
 		// freeze player
-		player.__KeyValueFromInt( "movetype", 0 );
+		player.SetMoveType( 0 );
 	}
 	else
 	{
-		m_hListener.DisconnectOutput("PressedMoveRight","PressedMoveRight");
-		m_hListener.DisconnectOutput("UnpressedMoveRight","UnpressedMoveRight");
-		m_hListener.DisconnectOutput("PressedMoveLeft","PressedMoveLeft");
-		m_hListener.DisconnectOutput("UnpressedMoveLeft","UnpressedMoveLeft");
-		m_hListener.DisconnectOutput("PressedForward","PressedForward");
-		m_hListener.DisconnectOutput("UnpressedForward","UnpressedForward");
-		m_hListener.DisconnectOutput("PressedBack","PressedBack");
-		m_hListener.DisconnectOutput("UnpressedBack","UnpressedBack");
+		player.SetInputCallback( "+moveright", null, null );
+		player.SetInputCallback( "-moveright", null, null );
 
-		// just enable noclip
-		player.__KeyValueFromInt( "movetype", 8 );
+		player.SetInputCallback( "+moveleft", null, null );
+		player.SetInputCallback( "-moveleft", null, null );
+
+		player.SetInputCallback( "+forward", null, null );
+		player.SetInputCallback( "-forward", null, null );
+
+		player.SetInputCallback( "+back", null, null );
+		player.SetInputCallback( "-back", null, null );
+
+		// enable noclip
+		player.SetMoveType( 8 );
 	};
 }
 
@@ -641,32 +649,17 @@ function ListenMouse(i)
 	{
 		ListenKeys(0);
 
-		VS.AddOutput( m_hListener, "PressedAttack",  OnMouse1Down );
-		VS.AddOutput( m_hListener, "PressedAttack2", OnMouse2Down );
-		VS.AddOutput( m_hListener, "UnpressedAttack",  OnMouse1Release );
-		// VS.AddOutput( m_hListener, "UnpressedAttack2", OnMouse2Release );
+		player.SetInputCallback( "+attack", OnMouse1Down, this );
+		player.SetInputCallback( "+attack2", OnMouse2Down, this );
+		player.SetInputCallback( "-attack", OnMouse1Release, this );
 	}
 	else
 	{
-		// m_hListener.DisconnectOutput("PressedAttack","PressedAttack");
-		// m_hListener.DisconnectOutput("PressedAttack2","PressedAttack2");
-		m_hListener.DisconnectOutput("UnpressedAttack","UnpressedAttack");
-		// m_hListener.DisconnectOutput("UnpressedAttack2","UnpressedAttack2");
+		player.SetInputCallback( "-attack", null, null );
 	};
 }
 
-VS.AddOutput( m_hListener, "UnpressedAttack2", null );
-VS.AddOutput( m_hListener, "PressedMoveRight",  "_KF_.KEY_ROLL_1(1)" );
-VS.AddOutput( m_hListener, "UnpressedMoveRight","_KF_.KEY_ROLL_1(0)" );
-VS.AddOutput( m_hListener, "PressedMoveLeft",   "_KF_.KEY_ROLL_0(1)" );
-VS.AddOutput( m_hListener, "UnpressedMoveLeft", "_KF_.KEY_ROLL_0(0)" );
-VS.AddOutput( m_hListener, "PressedForward",    "_KF_.KEY_FOV_1(1)"  );
-VS.AddOutput( m_hListener, "UnpressedForward",  "_KF_.KEY_FOV_1(0)"  );
-VS.AddOutput( m_hListener, "PressedBack",       "_KF_.KEY_FOV_0(1)"  );
-VS.AddOutput( m_hListener, "UnpressedBack",     "_KF_.KEY_FOV_0(0)"  );
-
-// +use to see
-VS.AddOutput( m_hListener, "PlayerOff", function()
+player.SetInputCallback( "+use", function(...)
 {
 	SeeKeyframe(0,1);
 
@@ -675,8 +668,6 @@ VS.AddOutput( m_hListener, "PlayerOff", function()
 	in_fov_0 = false;
 	in_roll_1 = false;
 	in_roll_0 = false;
-
-	EntFireByHandle( m_hListener, "Activate", "", 0, player )
 }, this );
 
 //--------------------------------------------------------------
@@ -862,7 +853,7 @@ function KEY_FOV_0(i)
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
-function OnMouse1Down()
+function OnMouse1Down(...)
 {
 	if ( m_bReplaceOnClick )
 	{
@@ -890,13 +881,13 @@ function OnMouse1Down()
 	return AddKeyframe();
 }
 
-function OnMouse1Release()
+function OnMouse1Release(...)
 {
 	if ( m_bGizmoEnabled )
 		return GizmoOnMouseRelease();
 }
 
-function OnMouse2Down()
+function OnMouse2Down(...)
 {
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
@@ -986,7 +977,7 @@ function SetEditMode( state = null, msg = true )
 		SetHelperVisible( false );
 		EntFireByHandle( m_hThinkEdit, "Disable" );
 		EntFireByHandle( m_hThinkAnim, "Disable" );
-		EntFireByHandle( m_hGameText2, "SetText", "", 0, player );
+		EntFireByHandle( m_hGameText2, "SetText", "" );
 
 		if (msg)
 			Msg("Edit mode disabled.\n");
@@ -1286,9 +1277,9 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins )
 				m_hGameText.__KeyValueFromString( "message", "KEY: " + m_nCurKeyframe );
 			};
 
-			EntFireByHandle( m_hGameText, "Display", "", 0, player );
-			EntFireByHandle( m_hGameText2, "Display", "", 0, player );
-			EntFireByHandle( m_hGameText2, "SetText", "", 0, player );
+			EntFireByHandle( m_hGameText, "Display", "", 0, player.self );
+			EntFireByHandle( m_hGameText2, "Display", "", 0, player.self );
+			EntFireByHandle( m_hGameText2, "SetText", "" );
 
 			SetHelperOrigin( curkey.origin );
 		};
@@ -1792,7 +1783,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 					// HACKHACK: can't be bothered to find a proper solution to moving view angles while translating
 					// so just freeze the player in place so the planes don't mess up
-					player.__KeyValueFromInt( "movetype", 0 );
+					player.SetMoveType( 0 );
 				}
 				else if ( m_nMouseOver != nSelection )
 				{
@@ -2067,7 +2058,7 @@ function GizmoOnMouseRelease()
 
 	m_bMouseDown = false;
 	m_bMouseForceUp = false;
-	player.__KeyValueFromInt( "movetype", 8 );
+	player.SetMoveType( 8 );
 
 	if ( m_nTranslation )
 	{
@@ -4231,7 +4222,7 @@ function Stop() : (g_FrameTime)
 
 	CameraSetFov(0,0);
 
-	VS.EventQueue.AddEvent( CBaseEntity.SetAngles, 0.025, m_AnglesRestore );
+	VS.EventQueue.AddEvent( player.SetAngles, 0.025, m_AnglesRestore );
 
 	SetEditModeTemp( m_bInEditMode );
 
@@ -4406,9 +4397,6 @@ function PostSpawn() : (MAX_COORD_VEC)
 	PlaySound("Player.DrownStart");
 	player.SetHealth(1337);
 
-	// key listener
-	EntFireByHandle( m_hListener, "Activate", "", 0, player );
-
 	ListenMouse(1);
 	SetAngleInterp( m_nInterpolatorAngle );
 	SetOriginInterp( m_nInterpolatorOrigin );
@@ -4416,12 +4404,12 @@ function PostSpawn() : (MAX_COORD_VEC)
 	SetHelperOrigin( MAX_COORD_VEC );
 
 	for ( local i = 18; i--; ) Chat(" ");
-	Chat(txt.blue+" --------------------------------");
+	Chat(TextColor.Uncommon+" --------------------------------");
 	Chat("");
-	Chat(Fmt( "%s[Keyframes Script v%s]", txt.lightgreen, _VER_ ));
-	Chat(Fmt( "%skf_cmd%s : Print all commands", txt.white, txt.orange ));
+	Chat(Fmt( "%s[Keyframes Script v%s]", TextColor.Achievement, _VER_ ));
+	Chat(Fmt( "%skf_cmd%s : Print all commands", TextColor.Normal, TextColor.Immortal ));
 	Chat("");
-	Chat(txt.blue+" --------------------------------");
+	Chat(TextColor.Uncommon+" --------------------------------");
 
 	// print after Steamworks Msg
 	if ( GetDeveloperLevel() > 0 )
@@ -4448,7 +4436,7 @@ function WelcomeMsg()
 	if ( !VS.IsInteger( 128.0 / tr ) )
 	{
 		Msg(Fmt( "[!] Invalid tickrate (%g)! Only 128 and 64 tickrates are supported.\n", tr ));
-		Chat(Fmt( "%s[!] %sInvalid tickrate ( %s%g%s )! Only 128 and 64 tickrates are supported.", txt.red, txt.white, txt.yellow, tr, txt.white ));
+		Chat(Fmt( "%s[!] %sInvalid tickrate ( %s%g%s )! Only 128 and 64 tickrates are supported.", TextColor.Red, TextColor.Normal, TextColor.Gold, tr, TextColor.Normal ));
 	};
 
 	delete WelcomeMsg;

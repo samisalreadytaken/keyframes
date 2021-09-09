@@ -1,11 +1,11 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.5 --------------------------------------------------------------
+//- v1.2.6 --------------------------------------------------------------
 IncludeScript("vs_library");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.5" };;
+	::_KF_ <- { version = "1.2.6" };;
 
 local _ = function(){
 
@@ -590,15 +590,16 @@ class keyframe_t //extends point_t
 
 //--------------------------------------------------------------
 
-local fnMoveRight1 = function(...) { return KEY_ROLL_1(1); }
-local fnMoveRight0 = function(...) { return KEY_ROLL_1(0); }
-local fnMoveLeft1  = function(...) { return KEY_ROLL_0(1); }
-local fnMoveLeft0  = function(...) { return KEY_ROLL_0(0); }
-local fnForward1   = function(...) { return KEY_FOV_1(1); }
-local fnForward0   = function(...) { return KEY_FOV_1(0); }
-local fnBack1      = function(...) { return KEY_FOV_0(1); }
-local fnBack0      = function(...) { return KEY_FOV_0(0); }
+local fnMoveRight1 = function(...) { return KEY_ROLL_1(1); }.bindenv(this);
+local fnMoveRight0 = function(...) { return KEY_ROLL_1(0); }.bindenv(this);
+local fnMoveLeft1  = function(...) { return KEY_ROLL_0(1); }.bindenv(this);
+local fnMoveLeft0  = function(...) { return KEY_ROLL_0(0); }.bindenv(this);
+local fnForward1   = function(...) { return KEY_FOV_1(1); }.bindenv(this);
+local fnForward0   = function(...) { return KEY_FOV_1(0); }.bindenv(this);
+local fnBack1      = function(...) { return KEY_FOV_0(1); }.bindenv(this);
+local fnBack0      = function(...) { return KEY_FOV_0(0); }.bindenv(this);
 
+const KF_CB_CONTEXT = "KEYFRAMES";;
 
 // see mode listen WASD
 function ListenKeys(i)
@@ -608,34 +609,34 @@ function ListenKeys(i)
 	{
 		ListenMouse(0);
 
-		player.SetInputCallback( "+moveright", fnMoveRight1, this );
-		player.SetInputCallback( "-moveright", fnMoveRight0, this );
+		player.SetInputCallback( "+moveright", fnMoveRight1, KF_CB_CONTEXT );
+		player.SetInputCallback( "-moveright", fnMoveRight0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+moveleft", fnMoveLeft1, this );
-		player.SetInputCallback( "-moveleft", fnMoveLeft0, this );
+		player.SetInputCallback( "+moveleft", fnMoveLeft1, KF_CB_CONTEXT );
+		player.SetInputCallback( "-moveleft", fnMoveLeft0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+forward", fnForward1, this );
-		player.SetInputCallback( "-forward", fnForward0, this );
+		player.SetInputCallback( "+forward", fnForward1, KF_CB_CONTEXT );
+		player.SetInputCallback( "-forward", fnForward0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+back", fnBack1, this );
-		player.SetInputCallback( "-back", fnBack0, this );
+		player.SetInputCallback( "+back", fnBack1, KF_CB_CONTEXT );
+		player.SetInputCallback( "-back", fnBack0, KF_CB_CONTEXT );
 
 		// freeze player
 		player.SetMoveType( 0 );
 	}
 	else
 	{
-		player.SetInputCallback( "+moveright", null, null );
-		player.SetInputCallback( "-moveright", null, null );
+		player.SetInputCallback( "+moveright", null, KF_CB_CONTEXT );
+		player.SetInputCallback( "-moveright", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+moveleft", null, null );
-		player.SetInputCallback( "-moveleft", null, null );
+		player.SetInputCallback( "+moveleft", null, KF_CB_CONTEXT );
+		player.SetInputCallback( "-moveleft", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+forward", null, null );
-		player.SetInputCallback( "-forward", null, null );
+		player.SetInputCallback( "+forward", null, KF_CB_CONTEXT );
+		player.SetInputCallback( "-forward", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+back", null, null );
-		player.SetInputCallback( "-back", null, null );
+		player.SetInputCallback( "+back", null, KF_CB_CONTEXT );
+		player.SetInputCallback( "-back", null, KF_CB_CONTEXT );
 
 		// enable noclip
 		player.SetMoveType( 8 );
@@ -649,13 +650,13 @@ function ListenMouse(i)
 	{
 		ListenKeys(0);
 
-		player.SetInputCallback( "+attack", OnMouse1Down, this );
-		player.SetInputCallback( "+attack2", OnMouse2Down, this );
-		player.SetInputCallback( "-attack", OnMouse1Release, this );
+		player.SetInputCallback( "+attack", OnMouse1Down, KF_CB_CONTEXT );
+		player.SetInputCallback( "+attack2", OnMouse2Down, KF_CB_CONTEXT );
+		player.SetInputCallback( "-attack", OnMouse1Release, KF_CB_CONTEXT );
 	}
 	else
 	{
-		player.SetInputCallback( "-attack", null, null );
+		player.SetInputCallback( "-attack", null, KF_CB_CONTEXT );
 	};
 }
 
@@ -668,7 +669,7 @@ player.SetInputCallback( "+use", function(...)
 	in_fov_0 = false;
 	in_roll_1 = false;
 	in_roll_0 = false;
-}, this );
+}.bindenv(this), KF_CB_CONTEXT );
 
 //--------------------------------------------------------------
 
@@ -853,7 +854,7 @@ function KEY_FOV_0(i)
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
-function OnMouse1Down(...)
+OnMouse1Down <- function(...)
 {
 	if ( m_bReplaceOnClick )
 	{
@@ -879,15 +880,15 @@ function OnMouse1Down(...)
 		return GizmoOnMouseDown();
 
 	return AddKeyframe();
-}
+}.bindenv(this);
 
-function OnMouse1Release(...)
+OnMouse1Release <- function(...)
 {
 	if ( m_bGizmoEnabled )
 		return GizmoOnMouseRelease();
-}
+}.bindenv(this);
 
-function OnMouse2Down(...)
+OnMouse2Down <- function(...)
 {
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
@@ -914,7 +915,7 @@ function OnMouse2Down(...)
 		return;
 
 	return RemoveKeyframe();
-}
+}.bindenv(this);
 
 //--------------------------------------------------------------
 //--------------------------------------------------------------
@@ -1446,15 +1447,20 @@ VS.OnTimer( m_hThinkAnim, function()
 			}
 			else if ( m_bSeeing )
 			{
-				local worldPos = VS.ScreenToWorld( 0.65, 0.35,
+				local mat = VMatrix();
+				VS.ScreenToWorldMatrix(
+					mat,
 					key.origin,
 					key.forward,
 					key.right,
 					key.up,
-					90.0, 1.77778, 16 );
+					key._fovx, 1.77778, 4.0, 1024.0 );
 
-				DrawRectFilled( worldPos, 0.5, 155, 255, 255, 96, 0.25, key.angles );
-				DrawRectFilled( worldPos, 0.5, 155, 255, 255, 64, 0.5, key.angles );
+				local worldPos = VS.ScreenToWorld( 0.65, 0.35, mat );
+
+				local s = key._fovx * 0.25;
+				DrawRectFilled( worldPos, s, 155, 255, 255, 96, 0.25, key.angles );
+				DrawRectFilled( worldPos, s, 155, 255, 255, 64, 0.5, key.angles );
 			};;
 		};
 	};
@@ -1472,13 +1478,16 @@ local FrameThink = function()
 	// TODO: use an overlay
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
-		local worldPos = VS.ScreenToWorld( 0.5, 0.63,
+		local mat = VMatrix();
+		VS.ScreenToWorldMatrix(
+			mat,
 			MainViewOrigin(),
 			MainViewForward(),
 			MainViewRight(),
 			MainViewUp(),
-			90.0, 1.77778, 16 );
+			90.0, 1.77778, 1.0, 16.0 );
 
+		local worldPos = VS.ScreenToWorld( 0.5, 0.63, mat );
 		local angles = MainViewAngles();
 
 		local maxs = Vector( 0.0, 5.0, 0.25 );
@@ -3651,7 +3660,7 @@ function _Save::Write() : (g_FrameTime, g_szMapName)
 
 function _Save::EndWrite()
 {
-	local file = VS.Log.Run( null, function()
+	local file = VS.Log.Run( null, function(f)
 	{
 		m_bSaveInProgress = false;
 		PlaySound( SND_EXPORT_SUCCESS );

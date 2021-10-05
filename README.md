@@ -5,7 +5,7 @@ Quick smooth camera path creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.6-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.7-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 

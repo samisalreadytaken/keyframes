@@ -1,11 +1,11 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.6 --------------------------------------------------------------
+//- v1.2.7 --------------------------------------------------------------
 IncludeScript("vs_library");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.6" };;
+	::_KF_ <- { version = "1.2.7" };;
 
 local _ = function(){
 
@@ -23,8 +23,8 @@ SendToConsole("alias kf_compile\"script _KF_.Compile()\"");
 SendToConsole("alias kf_smooth_angles\"script _KF_.SmoothAngles()\"");
 SendToConsole("alias kf_smooth_angles_exp\"script _KF_.SmoothAngles(1)\"");
 SendToConsole("alias kf_smooth_origin\"script _KF_.SmoothOrigin()\"");
-SendToConsole("alias kf_play\"script _KF_.Play()\"");
-SendToConsole("alias kf_play_loop\"script _KF_.Play(2)\"");
+SendToConsole("alias kf_play\"script _KF_.Play(KF_PLAY_DEFAULT)\"");
+SendToConsole("alias kf_play_loop\"script _KF_.Play(KF_PLAY_LOOP)\"");
 SendToConsole("alias kf_preview\"script _KF_.Play(1)\"");
 SendToConsole("alias kf_stop\"script _KF_.Stop()\"");
 SendToConsole("alias kf_savepath\"script _KF_.Save(KF_DATA_TYPE_PATH)\"");
@@ -58,19 +58,32 @@ SendToConsole("clear;script _KF_.PostSpawn()");
 const KF_FLT_EPS = 1.e-3;
 
 local vec3_origin = Vector();
-local g_FrameTime = 0.015625;
 local s_flDisplayTime = FrameTime() * 6;
-local MAX_COORD_VEC = Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
 local HELPER_EF =
 {
 	ON  = (1<<4)|(1<<6)|(1<<3)|0,
 	OFF = (1<<4)|(1<<6)|(1<<3)|(1<<5)
 }
 
+
 if ( !("_Process" in this) )
 {
-	SND_BUTTON <- "UIPanorama.container_countdown";
-	SND_EXPORT_SUCCESS <- "Survival.TabletUpgradeSuccess";
+	g_FrameTime <- 0.015625;
+	g_szMapName <- split( GetMapName(), "/" ).top();
+	MAX_COORD_VEC <- Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
+
+	SND_BUTTON					<- "UIPanorama.container_countdown";
+	SND_EXPORT_SUCCESS			<- "Survival.TabletUpgradeSuccess";
+	SND_ERROR					<- "Bot.Stuck2";
+	SND_FAILURE					<- "UIPanorama.buymenu_failure";
+	SND_TICKER					<- "UIPanorama.store_item_rollover";
+	SND_FILE_LOAD_SUCCESS		<- "Player.PickupGrenade";
+	SND_TRANSLATOR_MOVED		<- "UI.StickerSelect";
+	SND_TRANSLATOR_MOUSEOVER	<- "UI.PageScroll";
+	SND_COUNTDOWN_BEEP			<- "UI.CounterBeep";
+	SND_PLAY_END				<- "UI.RankDown";
+	SND_SPAWN					<- "Player.DrownStart";
+
 
 	_Process <- delegate this : {}
 
@@ -145,7 +158,7 @@ if ( !("_Process" in this) )
 	m_vecLastUp <- null;
 	m_vecLastRight <- null;
 
-	m_nDrawResolution <- 1;
+	m_nDrawResolution <- 10; // default draw resolution
 	m_nSelectedKeyframe <- -1;
 	m_nCurKeyframe <- 0;
 	m_nPlaybackIdx <- -1;
@@ -178,9 +191,12 @@ if ( !("_Process" in this) )
 	m_hLerpKeyframe <- null;
 	m_flLerpKeyAnim <- null;
 
+	m_nPathInitialFOV <- 0;
+
 	AddEvent <- VS.EventQueue.AddEvent.weakref();
 	Msg <- print;
-	Fmt <- format;
+	if ( !("Fmt" in CONST) )
+		compilestring("Fmt <- format").call(this);
 	clamp <- clamp;
 	EntFireByHandle <- EntFireByHandle;
 	DrawLine <- DebugDrawLine;
@@ -192,8 +208,6 @@ player <- ToExtendedPlayer( VS.GetPlayerByIndex(1) );
 
 if ( !("m_hThinkCam" in this) )
 {
-	g_szMapName <- split( GetMapName(), "/" ).top();
-
 	m_hThinkCam <- VS.Timer( true, g_FrameTime, null, null, false, true ).weakref();
 
 	m_hThinkEdit <- VS.Timer( true, s_flDisplayTime-FrameTime(), null, null, false, true ).weakref();
@@ -263,27 +277,27 @@ DrawBox( vec3_origin, vec3_origin, Vector(1,1,1), 0, 0, 0, 254, 1 );
 //--------------------------------------------------------------
 
 
-function CameraSetAngles(v) : (m_hCam)
+function CameraSetAngles(v)
 {
 	return m_hCam.SetAngles(v.x,v.y,v.z);
 }
 
-function CameraSetForward(v) : (m_hCam)
+function CameraSetForward(v)
 {
 	return m_hCam.SetForwardVector(v);
 }
 
-function CameraSetOrigin(v) : (m_hCam)
+function CameraSetOrigin(v)
 {
 	return m_hCam.SetOrigin(v);
 }
 
-function CameraSetFov( n, f ) : (m_hCam)
+function CameraSetFov( n, f )
 {
 	return m_hCam.SetFov( n, f );
 }
 
-function CameraSetEnabled( b ) : (m_hCam)
+function CameraSetEnabled( b )
 {
 	return EntFireByHandle( m_hCam, b ? "Enable" : "Disable", "", 0.0, player.self );
 }
@@ -297,6 +311,11 @@ function CameraSetThink( b )
 function PlaySound(s)
 {
 	return player.EmitSound(s);
+}
+
+function HintColor( msg, r, g, b ) : (CenterPrintAll)
+{
+	return CenterPrintAll(Fmt( "<font color='#%02x%02x%02x'>%s</font>", r&0xFF, g&0xFF, b&0xFF, msg ));
 }
 
 function Hint(s)
@@ -313,7 +332,7 @@ function HideHudHint( t = 0.0 )
 function Error(s)
 {
 	Msg(s);
-	PlaySound("Bot.Stuck2");
+	PlaySound( SND_ERROR );
 }
 
 function MsgFail(s)
@@ -330,7 +349,7 @@ function MsgFail(s)
 	};
 
 	// PlaySound("Player.WeaponSelected");
-	PlaySound("UIPanorama.buymenu_failure");
+	PlaySound( SND_FAILURE );
 }
 
 function MsgHint(s)
@@ -590,14 +609,14 @@ class keyframe_t //extends point_t
 
 //--------------------------------------------------------------
 
-local fnMoveRight1 = function(...) { return KEY_ROLL_1(1); }.bindenv(this);
-local fnMoveRight0 = function(...) { return KEY_ROLL_1(0); }.bindenv(this);
-local fnMoveLeft1  = function(...) { return KEY_ROLL_0(1); }.bindenv(this);
-local fnMoveLeft0  = function(...) { return KEY_ROLL_0(0); }.bindenv(this);
-local fnForward1   = function(...) { return KEY_FOV_1(1); }.bindenv(this);
-local fnForward0   = function(...) { return KEY_FOV_1(0); }.bindenv(this);
-local fnBack1      = function(...) { return KEY_FOV_0(1); }.bindenv(this);
-local fnBack0      = function(...) { return KEY_FOV_0(0); }.bindenv(this);
+local fnMoveRight1 = function(...) { return IN_ROLL_1(1); }.bindenv(this);
+local fnMoveRight0 = function(...) { return IN_ROLL_1(0); }.bindenv(this);
+local fnMoveLeft1  = function(...) { return IN_ROLL_0(1); }.bindenv(this);
+local fnMoveLeft0  = function(...) { return IN_ROLL_0(0); }.bindenv(this);
+local fnForward1   = function(...) { return IN_FOV_1(1); }.bindenv(this);
+local fnForward0   = function(...) { return IN_FOV_1(0); }.bindenv(this);
+local fnBack1      = function(...) { return IN_FOV_0(1); }.bindenv(this);
+local fnBack0      = function(...) { return IN_FOV_0(0); }.bindenv(this);
 
 const KF_CB_CONTEXT = "KEYFRAMES";;
 
@@ -676,7 +695,7 @@ player.SetInputCallback( "+use", function(...)
 local flRollIncr = 2.0;
 
 // Think keys roll
-function KEY_ThinkRoll() : (flRollIncr)
+function IN_ThinkRoll() : (flRollIncr)
 {
 	if ( in_roll_1 )
 	{
@@ -691,13 +710,13 @@ function KEY_ThinkRoll() : (flRollIncr)
 		Hint( "Roll "+m_vecRollLastAngle.z );
 	};;
 
-	PlaySound("UIPanorama.store_item_rollover");
+	PlaySound( SND_TICKER );
 }
 
 local fFovRate = FrameTime()*6;
 
 // Think keys fov
-function KEY_ThinkFOV() : (fFovRate)
+function IN_ThinkFOV() : (fFovRate)
 {
 	if ( in_fov_1 )
 	{
@@ -712,18 +731,18 @@ function KEY_ThinkFOV() : (fFovRate)
 		CameraSetFov( m_iFOV, fFovRate );
 	};;
 
-	PlaySound("UIPanorama.store_item_rollover");
+	PlaySound( SND_TICKER );
 }
 
 // roll clockwise
-function KEY_ROLL_1(i)
+function IN_ROLL_1(i)
 {
 	if (i)
 	{
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		VS.OnTimer( m_hThinkKeys, KEY_ThinkRoll );
+		VS.OnTimer( m_hThinkKeys, IN_ThinkRoll );
 		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles;
 
 		in_roll_1 = true;
@@ -749,14 +768,14 @@ function KEY_ROLL_1(i)
 }
 
 // roll counter-clockwise
-function KEY_ROLL_0(i)
+function IN_ROLL_0(i)
 {
 	if (i)
 	{
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		VS.OnTimer( m_hThinkKeys, KEY_ThinkRoll );
+		VS.OnTimer( m_hThinkKeys, IN_ThinkRoll );
 		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles;
 
 		in_roll_0 = true;
@@ -782,14 +801,14 @@ function KEY_ROLL_0(i)
 }
 
 // fov in
-function KEY_FOV_1(i)
+function IN_FOV_1(i)
 {
 	if (i)
 	{
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		VS.OnTimer( m_hThinkKeys, KEY_ThinkFOV );
+		VS.OnTimer( m_hThinkKeys, IN_ThinkFOV );
 		m_iFOV = 90;
 		in_fov_1 = true;
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -817,14 +836,14 @@ function KEY_FOV_1(i)
 }
 
 // fov out
-function KEY_FOV_0(i)
+function IN_FOV_0(i)
 {
 	if (i)
 	{
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		VS.OnTimer( m_hThinkKeys, KEY_ThinkFOV );
+		VS.OnTimer( m_hThinkKeys, IN_ThinkFOV );
 		m_iFOV = 90;
 		in_fov_0 = true;
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -1213,8 +1232,7 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
 
 local s_vecMins = Vector();
 
-// Edit mode think
-VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins )
+function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 {
 	local count = m_KeyFrames.len();
 	local viewOrigin = MainViewOrigin();
@@ -1416,10 +1434,10 @@ VS.OnTimer( m_hThinkEdit, function() : ( s_flDisplayTime, s_vecMins )
 			}
 		};
 	};
-}, this );
+}
 
 
-VS.OnTimer( m_hThinkAnim, function()
+function AnimThink()
 {
 	if ( m_bShowKeys )
 	{
@@ -1464,8 +1482,11 @@ VS.OnTimer( m_hThinkAnim, function()
 			};;
 		};
 	};
+}
 
-}, this );
+
+VS.OnTimer( m_hThinkEdit, EditModeThink, this );
+VS.OnTimer( m_hThinkAnim, AnimThink, this );
 
 
 // TODO: use SetThink
@@ -1610,6 +1631,13 @@ function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRect
 
 function DrawGrid( pos, up, right, time )
 {
+	// copy
+	//pos *= 1;
+	// snap to grid
+	//pos.x = (pos.x / 8.0).tointeger() * 8.0;
+	//pos.y = (pos.y / 8.0).tointeger() * 8.0;
+	//pos.z = (pos.z / 8.0).tointeger() * 8.0;
+
 	pos += up * 64.0 - right * 80.0;
 	for ( local i = 0; i <= 8; ++i )
 	{
@@ -1797,7 +1825,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 				else if ( m_nMouseOver != nSelection )
 				{
 					m_nMouseOver = nSelection;
-					PlaySound( "UI.PageScroll" );
+					PlaySound( SND_TRANSLATOR_MOUSEOVER );
 				};;
 			}
 			else if ( m_nMouseOver )
@@ -2071,7 +2099,7 @@ function GizmoOnMouseRelease()
 
 	if ( m_nTranslation )
 	{
-		PlaySound( "UI.StickerSelect" );
+		PlaySound( SND_TRANSLATOR_MOVED );
 		m_nSelectedKeyframe = -1;
 		m_nTranslation = 0;
 		m_bDirty = true;
@@ -2445,7 +2473,7 @@ function InsertKeyframe()
 }
 
 // kf_remove
-function RemoveKeyframe() : (MAX_COORD_VEC)
+function RemoveKeyframe()
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -2557,7 +2585,7 @@ function AddKeyframe()
 }
 
 // kf_clear
-function RemoveAllKeyframes():(MAX_COORD_VEC)
+function RemoveAllKeyframes()
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -2605,7 +2633,7 @@ const KF_INTERP_D3DX				= 6;;
 const KF_INTERP_BSPLINE				= 7;;
 const KF_INTERP_SIMPLE_CUBIC		= 8;;
 
-local KF_INTERP_COUNT				= 9;
+const KF_INTERP_COUNT				= 9;;
 
 // origin interpolator
 local g_InterpolatorMap = array( KF_INTERP_COUNT );
@@ -2619,7 +2647,7 @@ g_InterpolatorMap[ KF_INTERP_SIMPLE_CUBIC ]			= CONST.INTERPOLATE.SIMPLE_CUBIC;
 
 
 // kf_mode_angles
-function SetAngleInterp( i = null ) : (KF_INTERP_COUNT)
+function SetAngleInterp( i = null )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot change algorithm while compiling!\n");
@@ -2666,7 +2694,7 @@ function SetAngleInterp( i = null ) : (KF_INTERP_COUNT)
 }
 
 // kf_mode_origin
-function SetOriginInterp( i = null )  : ( KF_INTERP_COUNT )
+function SetOriginInterp( i = null )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot change algorithm while compiling!\n");
@@ -2761,7 +2789,7 @@ function SetAutoFillBoundaries( i = null )
 //--------------------------------------------------------------
 
 // kf_compile
-function Compile() : ( MAX_COORD_VEC, g_FrameTime )
+function Compile()
 {
 	if ( m_bCompiling )
 		return MsgFail("Compilation in progress...\n");
@@ -2881,7 +2909,7 @@ function _Process::FillBoundaries()
 }
 
 // TODO: Implement consistent speed
-function _Process::StartCompile() : ( g_FrameTime )
+function _Process::StartCompile()
 {
 	if ( m_bAutoFillBoundaries )
 	{
@@ -3005,7 +3033,7 @@ function _Process::SplineAngles( i, frac, out )
 	}
 }
 
-function _Process::CompilePath() : ( g_FrameTime )
+function _Process::CompilePath()
 {
 	local len = m_KeyFrames.len()-2;
 
@@ -3041,7 +3069,7 @@ function _Process::CompilePath() : ( g_FrameTime )
 	return AddEvent( FinishCompile, g_FrameTime, this );
 }
 
-function _Process::FinishCompile() : (g_FrameTime)
+function _Process::FinishCompile()
 {
 	if ( m_bAutoFillBoundaries )
 	{
@@ -3083,7 +3111,7 @@ function _Process::FinishCompile() : (g_FrameTime)
 	PlaySound(SND_BUTTON);
 }
 
-function _Process::CompileFOV() : (g_FrameTime)
+function _Process::CompileFOV()
 {
 	// Compile only if there was no change to keyframes
 	if ( m_bDirty )
@@ -3100,9 +3128,17 @@ function _Process::CompileFOV() : (g_FrameTime)
 		m_KeyFrames[0].SetFov( 0 );
 
 	// if keyframe 1 does not have an FOV value, set to 90
-	// NOTE: this sets keyframe 0 as well when m_bAutoFillBoundaries is true
 	if ( !m_KeyFrames[1].fov )
+	{
 		m_KeyFrames[1].SetFov( 90 );
+
+		m_nPathInitialFOV = 0;
+	}
+	else
+	{
+		// HACKHACK: save the initial FOV separately, export it on its own field
+		m_nPathInitialFOV = m_KeyFrames[1].fov;
+	};
 
 	local i = 0, c = m_KeyFrames.len()-1;
 	local t = g_FrameTime / m_flSampleRate;
@@ -3125,7 +3161,7 @@ function _Process::CompileFOV() : (g_FrameTime)
 			local frame = (i - 1) * m_nSampleCount;
 
 			// not ready to compile
-			if ( frame >= m_PathData.len() )
+			if ( !(frame in m_PathData) )
 				break;
 
 			local pt = m_PathData[ frame ];
@@ -3137,7 +3173,7 @@ function _Process::CompileFOV() : (g_FrameTime)
 	}
 }
 
-function _Process::SmoothAngles( r ) : (g_FrameTime)
+function _Process::SmoothAngles( r )
 {
 	local i, c;
 
@@ -3203,7 +3239,7 @@ function _Process::SmoothAnglesStack( stack )
 	return out;
 }
 
-function _Process::SmoothOrigin( r ) : (g_FrameTime)
+function _Process::SmoothOrigin( r )
 {
 	local i, c;
 
@@ -3550,10 +3586,16 @@ function ReadFrame( inKey, data, idx )
 const KF_DATA_TYPE_KEYFRAMES	= 1;;
 const KF_DATA_TYPE_PATH			= 2;;
 
+
 const KF_SAVE_V1				= 1;;
+
+// Complete rework
+// PATCH: field init_fov
 const KF_SAVE_V2				= 2;;
 
+// Current version
 const KF_SAVE_VERSION			= 2;;
+
 
 // kf_save, kf_savepath, kf_savekeys
 function Save( i = null )
@@ -3566,10 +3608,10 @@ function Save( i = null )
 
 	if ( i == null )
 	{
-		Msg("No data type to save specified, defaulting to path data.\n");
+		MsgFail("No data type to save specified.\n");
 		Msg("   Save compiled path data with 'kf_savepath'\n");
 		Msg("   Save keyframe data with 'kf_savekeys'\n\n");
-		i = KF_DATA_TYPE_PATH;
+		return;
 	};
 
 	if ( i == KF_DATA_TYPE_PATH )
@@ -3613,7 +3655,7 @@ function _Save::Process()
 	EndWrite();
 }
 
-function _Save::Write() : (g_FrameTime, g_szMapName)
+function _Save::Write()
 {
 	// header ---
 
@@ -3652,10 +3694,17 @@ function _Save::Write() : (g_FrameTime, g_szMapName)
 
 	_Process.ThreadSleep( g_FrameTime );
 
-	// tail ---
-
 	// strip trailing separator ",\n"
-	Add( VS.Log.Pop().slice( 0, -2 ) + "\n] }\n" );
+	Add( VS.Log.Pop().slice( 0, -2 ) + "\n]" );
+
+	// HACKHACK
+	if ( m_nPathInitialFOV )
+	{
+		Add( ", init_fov = " + m_nPathInitialFOV.tointeger() );
+	};
+
+	// tail ---
+	Add( "\n}\n\0" );
 }
 
 function _Save::EndWrite()
@@ -3722,7 +3771,7 @@ function LoadFile( msg = true )
 	if (msg)
 	{
 		Msg("...done.\n");
-		PlaySound("Player.PickupGrenade");
+		PlaySound( SND_FILE_LOAD_SUCCESS );
 	}
 }
 
@@ -3730,12 +3779,12 @@ function LoadFileError()
 {
 	Msg("Use 'kf_loadfile' to reload the keyframes_data.nut file.\n");
 	Msg("Use 'script kf_load( name )' to load a named data from the data file.\n");
-	PlaySound("UIPanorama.buymenu_failure");
+	PlaySound( SND_FAILURE );
 }
 
 
 // TODO: cleanup
-function _Load::LoadData( input = null ) : ( g_FrameTime, g_szMapName )
+function _Load::LoadData( input = null )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot load file while compiling!\n");
@@ -3819,7 +3868,7 @@ function _Load::LoadData( input = null ) : ( g_FrameTime, g_szMapName )
 
 	// data from the future?
 	if ( m_nLoadVer > KF_SAVE_VERSION || m_nLoadVer < KF_SAVE_V1 )
-		return MsgFail("Unrecognised data version!\n");
+		return MsgFail(Fmt( "Unrecognised data version! [%i]\n", m_nLoadVer ));
 
 	if ( m_nLoadType == KF_DATA_TYPE_KEYFRAMES )
 	{
@@ -3841,6 +3890,11 @@ function _Load::LoadData( input = null ) : ( g_FrameTime, g_szMapName )
 	m_pLoadData.resize( framecount );
 	m_pLoadInput = input.weakref();
 
+	// HACKHACK
+	if ( ("init_fov" in input) && (typeof input.init_fov == "integer") )
+	{
+		m_nPathInitialFOV = input.init_fov;
+	};
 
 	Msg("Preparing to load...\n");
 	PlaySound(SND_BUTTON);
@@ -3870,7 +3924,7 @@ local NewFrame = function()
 	}
 }
 
-function _Load::LoadInternal() : ( g_FrameTime, NewFrame )
+function _Load::LoadInternal() : ( NewFrame )
 {
 	Msg(".");
 	local sl = 0;
@@ -3962,7 +4016,7 @@ function _Load::LoadInternal() : ( g_FrameTime, NewFrame )
 	};;
 }
 
-function LoadFinishInternal() : ( g_FrameTime )
+function LoadFinishInternal()
 {
 	// Assert
 	local c = m_pLoadData.len();
@@ -4005,7 +4059,7 @@ function LoadFinishInternal() : ( g_FrameTime )
 //--------------------------------------------------------------
 
 
-VS.OnTimer( m_hThinkCam, function() : ( m_hCam, m_PathData )
+function CameraThink()
 {
 	if ( !m_bPreview )
 	{
@@ -4025,7 +4079,7 @@ VS.OnTimer( m_hThinkCam, function() : ( m_hCam, m_PathData )
 		{
 			if ( m_bPlaybackLoop )
 			{
-				if ( m_Selection[0] && m_Selection[0] )
+				if ( m_Selection[0] && m_Selection[1] )
 				{
 					m_nPlaybackIdx = m_Selection[0];
 				}
@@ -4065,14 +4119,16 @@ VS.OnTimer( m_hThinkCam, function() : ( m_hCam, m_PathData )
 				return Stop();
 		};
 	};
+}
 
-}, this );
+VS.OnTimer( m_hThinkCam, CameraThink, this );
 
 
-// 0 : kf_play
-// 2 : kf_play_loop
-// 1 : kf_preview
-function Play( type = 0 )
+const KF_PLAY_DEFAULT = 0;;
+const KF_PLAY_LOOP = 2;;
+const KF_PLAY_PREVIEW = 1;;
+
+function Play( type = KF_PLAY_DEFAULT )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot start playback while compiling!\n");
@@ -4087,10 +4143,10 @@ function Play( type = 0 )
 	if ( m_bSeeing )
 		SeeKeyframe(1);
 
-	if ( ((type == 0) || (type == 2)) && !m_PathData.len() )
+	if ( ((type == KF_PLAY_DEFAULT) || (type == KF_PLAY_LOOP)) && !m_PathData.len() )
 		return MsgFail("No compiled data found.\n");
 
-	if ( (type == 1) && !m_KeyFrames.len() )
+	if ( (type == KF_PLAY_PREVIEW) && !m_KeyFrames.len() )
 		return MsgFail("No keyframe data found.\n");
 
 	if ( developer() > 1 )
@@ -4099,13 +4155,13 @@ function Play( type = 0 )
 		SendToConsole("developer 1");
 	};
 
-	if ( ((type == 0) || (type == 2)) && m_bDirty )
+	if ( ((type == KF_PLAY_DEFAULT) || (type == KF_PLAY_LOOP)) && m_bDirty )
 	{
 		Msg("Playing back outdated path; compile to see changes, or use kf_preview\n");
 	};
 
-	m_bPlaybackLoop = type == 2;
-	m_bPreview = type == 1;
+	m_bPlaybackLoop = ( type == KF_PLAY_LOOP );
+	m_bPreview = ( type == KF_PLAY_PREVIEW );
 	local ang;
 
 	if ( m_bPlaybackLoop )
@@ -4113,9 +4169,9 @@ function Play( type = 0 )
 		Msg("loop\n");
 	};
 
-	if ( (type == 0) || (type == 2) )
+	if ( (type == KF_PLAY_DEFAULT) || (type == KF_PLAY_LOOP) )
 	{
-		if ( m_Selection[0] && m_Selection[0] )
+		if ( m_Selection[0] && m_Selection[1] )
 		{
 			m_nPlaybackTarget = m_Selection[1];
 			m_nPlaybackIdx = m_Selection[0];
@@ -4127,9 +4183,7 @@ function Play( type = 0 )
 			m_nPlaybackTarget = m_PathData.len();
 			m_nPlaybackIdx = 0;
 
-			local firstkey = m_KeyFrames[1];
-			if ( firstkey.fov )
-				CameraSetFov( firstkey.fov, 0 );
+			CameraSetFov( m_nPathInitialFOV, 0.0 );
 		};
 
 		local firstpt = m_PathData[m_nPlaybackIdx];
@@ -4169,13 +4223,13 @@ function Play( type = 0 )
 	CameraSetThink( false );
 
 	MsgHint("Starting in 3...\n");
-	PlaySound("UI.CounterBeep");
+	PlaySound( SND_COUNTDOWN_BEEP );
 
 	AddEvent( MsgHint,   1.0, [this, "Starting in 2...\n"] );
-	AddEvent( PlaySound, 1.0, [this, "UI.CounterBeep"]   );
+	AddEvent( PlaySound, 1.0, [this, SND_COUNTDOWN_BEEP]   );
 
 	AddEvent( MsgHint,   2.0, [this, "Starting in 1...\n"] );
-	AddEvent( PlaySound, 2.0, [this, "UI.CounterBeep"]   );
+	AddEvent( PlaySound, 2.0, [this, SND_COUNTDOWN_BEEP]   );
 
 	player.SetHealth(1337);
 	HideHudHint( 3.0 );
@@ -4193,7 +4247,7 @@ function _Play()
 }
 
 // kf_stop
-function Stop() : (g_FrameTime)
+function Stop()
 {
 	if ( m_bPlaybackPending )
 	{
@@ -4235,7 +4289,7 @@ function Stop() : (g_FrameTime)
 
 	SetEditModeTemp( m_bInEditMode );
 
-	PlaySound("UI.RankDown");
+	PlaySound( SND_PLAY_END );
 }
 
 
@@ -4299,7 +4353,7 @@ function SetKeyframeRoll( input )
 	PlaySound(SND_BUTTON);
 }
 
-function Trim( flInputLen, bDirection = 1 ) : ( g_FrameTime )
+function Trim( flInputLen, bDirection = 1 )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot trim while compiling!\n");
@@ -4349,7 +4403,7 @@ function Trim( flInputLen, bDirection = 1 ) : ( g_FrameTime )
 	PlaySound(SND_BUTTON);
 }
 
-function UndoTrim() : ( g_FrameTime )
+function UndoTrim()
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot undo trim while compiling!\n");
@@ -4398,13 +4452,17 @@ CompileFOV <- _Process.CompileFOV.bindenv(_Process);
 //--------------------------------------------------------------
 
 
-function PostSpawn() : (MAX_COORD_VEC)
+function PostSpawn()
 {
 	if ( player.GetTeam() != 2 && player.GetTeam() != 3 )
 		player.SetTeam(2);
 
-	PlaySound("Player.DrownStart");
+	PlaySound( SND_SPAWN );
 	player.SetHealth(1337);
+
+	// init
+	CameraSetEnabled( true );
+	CameraSetEnabled( false );
 
 	ListenMouse(1);
 	SetAngleInterp( m_nInterpolatorAngle );
@@ -4415,7 +4473,7 @@ function PostSpawn() : (MAX_COORD_VEC)
 	for ( local i = 18; i--; ) Chat(" ");
 	Chat(TextColor.Uncommon+" --------------------------------");
 	Chat("");
-	Chat(Fmt( "%s[Keyframes Script v%s]", TextColor.Achievement, _VER_ ));
+	Chat(Fmt( "%s[Keyframes Script v%s]", TextColor.Achievement, version ));
 	Chat(Fmt( "%skf_cmd%s : Print all commands", TextColor.Normal, TextColor.Immortal ));
 	Chat("");
 	Chat(TextColor.Uncommon+" --------------------------------");
@@ -4457,7 +4515,7 @@ function WelcomeMsg()
 function PrintCmd()
 {
 	Msg("\n");
-	Msg(Fmt( "   [v%s]     github.com/samisalreadytaken/keyframes\n", _VER_ ));
+	Msg(Fmt( "   [v%s]     github.com/samisalreadytaken/keyframes\n", version ));
 	Msg("\n");
 	Msg("kf_add                  : Add new keyframe\n");
 	Msg("kf_remove               : Remove the selected keyframe\n");

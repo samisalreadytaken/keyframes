@@ -3,6 +3,11 @@
 
 --------------------------------
 
+2021-09-09 [v1.2.7]
+- Fixed playing compiled data while there are no key frames present - reported by Slimek
+- Fixed initial FOV not being saved and set on path data
+- Removed default fallback of 'kf_save' command
+
 2021-09-09 [v1.2.6]
 - Updated vs_library v2.43.2
 

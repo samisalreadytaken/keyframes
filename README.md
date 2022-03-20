@@ -20,14 +20,14 @@ Manually download the repository ([`Code > Download ZIP`](https://github.com/sam
 
 Alternatively run the installation script of your choice:
 
-- [Batch](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat) <sub>NOTE: `curl` and `tar` are included in Windows 10 since 17063.</sub>
+- [Batch](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install.bat) <sub>NOTE: `curl` and `tar` are included in Windows 10 since 17063.</sub>
 ```
-curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat > install_keyframes.bat && cmd /C install_keyframes.bat && del install_keyframes.bat
+curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install.bat > install_keyframes.bat && cmd /C install_keyframes.bat && del install_keyframes.bat
 ```
 
-- [Shell](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.sh)
+- [Shell](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install.sh)
 ```
-sh <(curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.sh)
+sh <(curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install.sh)
 ```
 
 ## Usage

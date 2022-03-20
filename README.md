@@ -12,26 +12,26 @@ Quick smooth camera path creation.
 ## Installation
 Merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
 
-This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. You can only use this script on your own server.
+This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. It can only be used on your own local server.
 
 
 ### Downloading
-**Method 1.**
 Manually download the repository ([`Code > Download ZIP`](https://github.com/samisalreadytaken/keyframes/archive/master.zip)), then extract the folder.
 
-**Method 2.**
-On Windows 10 17063 or later, run the [`install_keyframes.bat`](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat) file to automatically download the script into your game files. It can also be used to update the script.
+Alternatively run the installation script of your choice:
 
-**Method 3.**
-In bash, after changing the directory below to your Steam game library directory, use the following commands to install the script into your game files.
+- [Batch](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat) <sub>NOTE: `curl` and `tar` are included in Windows 10 since 17063.</sub>
 ```
-cd "C:/Program Files/Steam/steamapps/common/Counter-Strike Global Offensive/" &&
-curl https://codeload.github.com/samisalreadytaken/keyframes/tar.gz/master | tar -xz --strip=1 keyframes-master/csgo
+curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.bat > install_keyframes.bat && cmd /C install_keyframes.bat && del install_keyframes.bat
 ```
 
+- [Shell](https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.sh)
+```
+sh <(curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/master/install_keyframes.sh)
+```
 
 ## Usage
-Use the console commands to load and control the script. You need to load it each time you change the map.
+Use the console commands to load and control the script. It needs to be loaded each time the map is changed.
 
 See the _Default Key Binds_ section below for the keys that are available for you to use by default. These do not modify your settings. Optionally, bind your other keys to improve your workflow. You can find some examples at the bottom of the [keyframes.cfg](csgo/cfg/keyframes.cfg) file.
 
@@ -149,8 +149,8 @@ Hold CTRL (`+duck`) and MOUSE1 (`+attack`) to rotate around the current keyframe
 See [CHANGELOG.txt](CHANGELOG.txt)
 
 
-## License
-You are free to use, modify and share this script under the terms of the GNU GPLv2.0 license. In short, you must keep the copyright notice, and make your modifications public under the same license if you distribute it.
+## Licence
+You are free to use, modify and share this script under the terms of the GNU GPLv2.0 licence. In short, you must keep the copyright notice, and make your modifications public under the same licence if you distribute it.
 
 This script uses [vs_library](https://github.com/samisalreadytaken/vs_library).
 

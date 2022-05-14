@@ -1,11 +1,13 @@
 //-----------------------------------------------------------------------
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
-//- v1.2.7 --------------------------------------------------------------
+//-----------------------------------------------------------------------
+local VERSION = "1.2.8";
+
 IncludeScript("vs_library");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = "1.2.7" };;
+	::_KF_ <- { version = VERSION };;
 
 local _ = function(){
 
@@ -52,7 +54,6 @@ SendToConsole("alias kf_loadfile\"script _KF_.LoadFile()\"");
 SendToConsole("alias kf_select\"script _KF_.SelectKeyframe()\"");
 SendToConsole("alias kf_save\"script _KF_.Save()\"");
 SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
-_VER_ <- version;
 
 //--------------------------------------------------------------
 
@@ -161,6 +162,7 @@ if ( !("_Process" in this) )
 	m_vecLastForward <- null;
 	m_vecLastUp <- null;
 	m_vecLastRight <- null;
+	m_vecPivotPoint <- null;
 
 	m_nDrawResolution <- 10; // default draw resolution
 	m_nSelectedKeyframe <- -1;
@@ -251,7 +253,7 @@ if ( !("m_hThinkCam" in this) )
 
 	m_hHudHint <- VS.CreateEntity("env_hudhint",null,true).weakref();
 
-	m_hCam <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
+	m_hView <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
 
 	PrecacheModel("keyframes/kf_circle_orange.vmt");
 
@@ -283,27 +285,27 @@ DrawBox( vec3_origin, vec3_origin, Vector(1,1,1), 0, 0, 0, 254, 1 );
 
 function CameraSetAngles(v)
 {
-	return m_hCam.SetAngles(v.x,v.y,v.z);
+	return m_hView.SetAngles(v.x,v.y,v.z);
 }
 
 function CameraSetForward(v)
 {
-	return m_hCam.SetForwardVector(v);
+	return m_hView.SetForwardVector(v);
 }
 
 function CameraSetOrigin(v)
 {
-	return m_hCam.SetOrigin(v);
+	return m_hView.SetAbsOrigin(v);
 }
 
 function CameraSetFov( n, f )
 {
-	return m_hCam.SetFov( n, f );
+	return m_hView.SetFov( n, f );
 }
 
 function CameraSetEnabled( b )
 {
-	return EntFireByHandle( m_hCam, b ? "Enable" : "Disable", "", 0.0, player.self );
+	return EntFireByHandle( m_hView, b ? "Enable" : "Disable", "", 0.0, player.self );
 }
 
 function CameraSetThink( b )
@@ -352,7 +354,6 @@ function MsgFail(s)
 		Msg(")");
 	};
 
-	// PlaySound("Player.WeaponSelected");
 	PlaySound( SND_FAILURE );
 }
 
@@ -364,7 +365,7 @@ function MsgHint(s)
 
 function ArrayAppend( arr, val )
 {
-	arr.insert( arr.len(), val );
+	return arr.insert( arr.len(), val );
 }
 
 
@@ -382,7 +383,7 @@ function SetHelperVisible( state ) : (HELPER_EF)
 
 function SetHelperOrigin( vec )
 {
-	m_hKeySprite.SetOrigin( vec );
+	return m_hKeySprite.SetOrigin( vec );
 }
 
 function IsDucking()
@@ -472,15 +473,15 @@ class point_t
 
 class keyframe_t //extends point_t
 {
-	origin = null;
-	angles = null;
-	forward = null;
-	right = null;
-	up = null;
-	orientation = null;
-	transform = null;
-	fov = null;
-	_fovx = null;
+	origin = null;		// Vector
+	angles = null;		// QAngle
+	forward = null;		// Vector
+	right = null;		// Vector
+	up = null;			// Vector
+	orientation = null;	// Quaternion
+	transform = null;	// matrix3x4_t
+	fov = null;			// int
+	_fovx = null;		// float
 
 	constructor()
 	{
@@ -663,9 +664,9 @@ function ListenMouse(i)
 	{
 		ListenKeys(0);
 
-		player.SetInputCallback( "+attack", OnMouse1Down, KF_CB_CONTEXT );
-		player.SetInputCallback( "+attack2", OnMouse2Down, KF_CB_CONTEXT );
-		player.SetInputCallback( "-attack", OnMouse1Release, KF_CB_CONTEXT );
+		player.SetInputCallback( "+attack", OnMouse1Pressed, KF_CB_CONTEXT );
+		player.SetInputCallback( "+attack2", OnMouse2Pressed, KF_CB_CONTEXT );
+		player.SetInputCallback( "-attack", OnMouse1Released, KF_CB_CONTEXT );
 	}
 	else
 	{
@@ -867,7 +868,7 @@ function IN_FOV_0(i)
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
-OnMouse1Down <- function(...)
+OnMouse1Pressed <- function(...)
 {
 	if ( m_bReplaceOnClick )
 	{
@@ -895,13 +896,13 @@ OnMouse1Down <- function(...)
 	return AddKeyframe();
 }.bindenv(this);
 
-OnMouse1Release <- function(...)
+OnMouse1Released <- function(...)
 {
 	if ( m_bGizmoEnabled )
 		return GizmoOnMouseRelease();
 }.bindenv(this);
 
-OnMouse2Down <- function(...)
+OnMouse2Pressed <- function(...)
 {
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
@@ -1023,6 +1024,9 @@ function SelectPath()
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to select.\n");
 
+	if ( !m_PathData.len() )
+		return MsgFail("No path to select.\n");
+
 	if ( m_fPathSelection == 0 )
 	{
 		MsgHint( "Select path begin...\n" );
@@ -1031,6 +1035,8 @@ function SelectPath()
 	else if ( m_fPathSelection == 1 )
 	{
 		m_Selection[0] = m_nCurPathSelection;
+
+		Msg(Fmt( " [%d ->\n", m_Selection[0] ));
 
 		MsgHint( "Select path end...\n" );
 		m_fPathSelection = 2;
@@ -1245,8 +1251,8 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 			// not selected any keyframe
 			if ( !bSelected )
 			{
-				local nCur = count - 1;
-				local fThreshold = 0.9;
+				local nCur;
+				local flThreshold = 0.9;
 				local flBestDist = 1.e+37;
 
 				foreach( i, key in m_KeyFrames )
@@ -1255,10 +1261,10 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 					local dist = dir.Norm();
 					local dot = viewForward.Dot(dir);
 
-					if ( dot > fThreshold )
+					if ( dot > flThreshold )
 					{
 						nCur = i;
-						fThreshold = dot;
+						flThreshold = dot;
 					};
 
 					if ( m_fPathSelection != 0 )
@@ -1271,7 +1277,8 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 					};
 				}
 
-				m_nCurKeyframe = nCur;
+				if ( nCur != null )
+					m_nCurKeyframe = nCur;
 			};
 
 			curkey = m_KeyFrames[ m_nCurKeyframe ];
@@ -1406,7 +1413,7 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 				local end = nNearestKey * m_nSampleCount;
 				local i = (nNearestKey-2) * m_nSampleCount;
 				local nSelect = 0;
-				local fThreshold = 0.9;
+				local flThreshold = 0.9;
 
 				while ( i < end )
 				{
@@ -1414,9 +1421,9 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 					dir.Norm();
 					local dot = viewForward.Dot( dir );
 
-					if ( dot > fThreshold )
+					if ( dot > flThreshold )
 					{
-						fThreshold = dot;
+						flThreshold = dot;
 						nSelect = i;
 					};
 					++i;
@@ -1625,36 +1632,47 @@ function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRect
 
 function DrawGrid( pos, up, right, time )
 {
-	// copy
-	//pos *= 1;
-	// snap to grid
-	//pos.x = (pos.x / 8.0).tointeger() * 8.0;
-	//pos.y = (pos.y / 8.0).tointeger() * 8.0;
-	//pos.z = (pos.z / 8.0).tointeger() * 8.0;
+	local scale = 16.0;
+	local count = 8;
+	local size = scale * count;
 
-	pos += up * 64.0 - right * 80.0;
-	for ( local i = 0; i <= 8; ++i )
+	// copy
+	pos *= 1;
+	// snap to grid
+	pos.x = (pos.x / scale).tointeger() * scale;
+	pos.y = (pos.y / scale).tointeger() * scale;
+	pos.z = (pos.z / scale).tointeger() * scale;
+
+	pos += up * (scale * count/2) - right * (scale * count/2);
+	for ( local i = 0; i <= count; ++i )
 	{
-		pos += right * 16.0;
-		local v1 = pos - up * 128.0;
+		pos += right * scale;
+		local v1 = pos - up * size;
+		v1.x = (v1.x / scale).tointeger() * scale;
+		v1.y = (v1.y / scale).tointeger() * scale;
+		v1.z = (v1.z / scale).tointeger() * scale;
 		DrawLine( pos, v1, 100, 140, 220, true, time );
 	}
-	for ( local i = 0; i <= 8; ++i )
+	for ( local i = 0; i <= count; ++i )
 	{
-		local v1 = pos - right * 128.0;
+		local v1 = pos - right * size;
+		v1.x = (v1.x / scale).tointeger() * scale;
+		v1.y = (v1.y / scale).tointeger() * scale;
+		v1.z = (v1.z / scale).tointeger() * scale;
 		DrawLine( pos, v1, 100, 140, 220, true, time );
-		pos -= up * 16.0;
+		pos -= up * scale;
 	}
 }
 
-
+//
 // Very basic screen plane, axis and plane translation manipulator.
-// FIXME: Because of the drawing order parts of the axes lag behind while moving
-
+// FIXME: Because of the drawing order, parts of the axes lag behind while moving
+//
 function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 	: ( vAxisMin, vAxisMax, vPlaneMin, vPlaneMax )
 {
 	local vecCursor;
+	local nCursorG = 255, nCursorB = 255;
 
 	if ( !IsDucking() )
 	{
@@ -1812,8 +1830,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 					m_vecLastUp = MainViewUp();
 					m_vecLastRight = MainViewRight();
 
-					// HACKHACK: can't be bothered to find a proper solution to moving view angles while translating
-					// so just freeze the player in place so the planes don't mess up
+					// HACKHACK: can't be bothered to find a proper solution to moving view angles while translating,
+					// just freeze the player in place so the planes don't mess up
 					player.SetMoveType( 0 );
 				}
 				else if ( m_nMouseOver != nSelection )
@@ -1836,15 +1854,14 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 			if ( nSelection == 1 )
 			{
-				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, m_vecLastForward*-1, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				local t = m_vecLastDeltaOrigin.Length();
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.SetOrigin( vecCursor - m_vecOffset );
 
 				DrawRectFilled( key.origin, 4, 255,255,0,255, -1, viewAngles );
-				DrawGrid( key.origin, m_vecLastUp, m_vecLastRight, -1 );
+				// Draw a sphere for spherical translation
+				VS.DrawSphere( viewOrigin, 8, 32, 24, 100, 140, 220, true, -1 );
 			}
 			else
 			{
@@ -1858,8 +1875,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 2 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.z = vecCursor.z - m_vecOffset.z;
@@ -1880,8 +1897,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 3 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.x = vecCursor.x - m_vecOffset.x;
@@ -1902,8 +1919,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 4 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.y = vecCursor.y - m_vecOffset.y;
@@ -1925,8 +1942,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 5 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.x = vecCursor.x - m_vecOffset.x;
@@ -1949,8 +1966,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 6 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v100, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.y = vecCursor.y - m_vecOffset.y;
@@ -1973,8 +1990,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			if ( nSelection == 7 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
-				if ( t > 1024.0 )	t = 1024.0;
-				else if ( t < 0.0 )	t = 0.0;;
+				t = clamp( t, 0.0, 1024.0 );
+
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
 				key.origin.x = vecCursor.x - m_vecOffset.x;
@@ -2022,10 +2039,25 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 		key.DrawFrustum( 255, 200, 255, -1 );
 
-		vecCursor = key.origin;
-		// local deltaOrigin = viewOrigin - key.origin;
-		// local t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, viewForward*-1, 0.0 );
-		// vecCursor = viewOrigin + viewForward * t;
+		local deltaOrigin = viewOrigin - key.origin;
+
+		// If player is looking too far away from the current key, trace against the world for pivot point
+		local vDt = deltaOrigin * -1; vDt.Norm();
+		if ( vDt.Dot( viewForward ) < cos( DEG2RAD * 10 ) )
+		{
+			const MASK_SOLID = 0x200400b;
+			local tr = VS.TraceLine( viewOrigin, viewOrigin + viewForward * MAX_COORD_FLOAT, player.self, MASK_SOLID );
+			vecCursor = tr.GetPos();
+
+			// different cursor colour
+			nCursorG = 0;
+			nCursorB = 0;
+		}
+		else
+		{
+			local t = VS.IntersectRayWithPlane( deltaOrigin, viewForward, viewForward*-1, 0.0 );
+			vecCursor = viewOrigin + viewForward * t;
+		};
 
 		if ( m_bMouseDown )
 		{
@@ -2035,7 +2067,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 				CameraSetOrigin( viewOrigin );
 				CameraSetForward( viewForward );
 
-				// m_vecPivotPoint = vecCursor;
+				m_vecPivotPoint = vecCursor;
 
 				m_nSelectedKeyframe = m_nCurKeyframe;
 				m_vecCameraOffset = viewOrigin - vecCursor;
@@ -2047,8 +2079,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 				if ( !VS.VectorIsZero( deltaForward ) )
 				{
-					// m_vecPivotPoint
-					local pos = vecCursor - viewForward * m_vecCameraOffset.Length();
+					local pos = m_vecPivotPoint - viewForward * m_vecCameraOffset.Length();
 					CameraSetOrigin( pos );
 					CameraSetForward( viewForward );
 
@@ -2073,7 +2104,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 	};;
 
 	// draw cursor
-	DrawRectFilled( vecCursor, 2, 255,255,255,255, -1, viewAngles );
+	DrawRectFilled( vecCursor, 2, 255, nCursorG, nCursorB, 255, -1, viewAngles );
 }
 
 function GizmoOnMouseDown()
@@ -3909,13 +3940,10 @@ function _Load::LoadData( input = null )
 local NewFrame = function()
 {
 	if ( m_nLoadType == KF_DATA_TYPE_KEYFRAMES )
-	{
 		return keyframe_t();
-	}
-	else if ( m_nLoadType == KF_DATA_TYPE_PATH )
-	{
+
+	if ( m_nLoadType == KF_DATA_TYPE_PATH )
 		return point_t();
-	}
 }
 
 function _Load::LoadInternal() : ( NewFrame )
@@ -4058,16 +4086,16 @@ function CameraThink()
 	if ( !m_bPreview )
 	{
 		local pt = m_PathData[m_nPlaybackIdx];
-		m_hCam.SetOrigin( pt.origin );
+		CameraSetOrigin( pt.origin );
 
-		local a = pt.angles;
-		m_hCam.SetAngles( a.x, a.y, a.z );
+		local ang = pt.angles;
+		CameraSetAngles( ang );
 
 		// NOTE: This is here for external effects that may use player angles (such as flashbangs)
-		player.SetAngles( a.x, a.y, 0 );
+		player.SetAngles( ang.x, ang.y, 0 );
 
 		if ( pt.fov )
-			m_hCam.SetFov( pt.fov, pt.fov_rate );
+			CameraSetFov( pt.fov, pt.fov_rate );
 
 		if ( m_nPlaybackTarget <= ++m_nPlaybackIdx )
 		{
@@ -4097,8 +4125,8 @@ function CameraThink()
 
 		// local fr = ((m_nPlaybackIdx-1) * m_nSampleCount) + ( (m_flPreviewFrac / m_flSampleRate) + KF_FLT_EPS ).tointeger();
 
-		m_hCam.SetOrigin( pos );
-		m_hCam.SetAngles( ang.x, ang.y, ang.z );
+		CameraSetOrigin( pos );
+		CameraSetAngles( ang );
 
 		// HACKHACK: set player angles as well to get the correct angle in CurrentViewAngles in edit mode
 		player.SetAngles( ang.x, ang.y, 0 );

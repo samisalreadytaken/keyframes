@@ -3,7 +3,15 @@
 
 --------------------------------
 
-2021-09-09 [v1.2.7]
+2022-05-14 [v1.2.8]
+- Fixed (default) D3DX angle interpolator
+- Changed 3D translation manipulator centre gizmo move the keyframe in spherical coordinates instead of locked-in plane
+- Changed 3D translation manipulator camera rotation pivot point to cursor position instead of resetting it to the key origin
+- Changed camera rotation pivot point to world while not looking towards a keyframe
+- Fixed keyframe selection changing while looking too far away
+- Fixed engine view interpolation
+
+2021-10-05 [v1.2.7]
 - Fixed playing compiled data while there are no key frames present - reported by Slimek
 - Fixed initial FOV not being saved and set on path data
 - Removed default fallback of 'kf_save' command

@@ -2,7 +2,7 @@
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
 //-----------------------------------------------------------------------
-local VERSION = "1.2.8";
+local VERSION = "1.2.9";
 
 IncludeScript("vs_library");
 
@@ -45,10 +45,10 @@ SendToConsole("alias kf_showpath\"script _KF_.ShowToggle(1)\"");
 SendToConsole("alias kf_trim_undo\"script _KF_.UndoTrim()\"");
 SendToConsole("alias kf_cmd\"script _KF_.PrintCmd()\"");
 SendToConsole("alias kf_loadfile\"script _KF_.LoadFile()\"");
-//SendToConsole("alias +kf_moveup\"script _KF_.IN_Move(1)\"");
-//SendToConsole("alias +kf_movedown\"script _KF_.IN_Move(2)\"");
-//SendToConsole("alias -kf_moveup\"script _KF_.IN_Move(0)\"");
-//SendToConsole("alias -kf_movedown\"script _KF_.IN_Move(0)\"");
+SendToConsole("alias +kf_moveup\"script _KF_.IN_Move(1)\"");
+SendToConsole("alias +kf_movedown\"script _KF_.IN_Move(2)\"");
+SendToConsole("alias -kf_moveup\"script _KF_.IN_Move(0)\"");
+SendToConsole("alias -kf_movedown\"script _KF_.IN_Move(0)\"");
 
 // deprecated
 SendToConsole("alias kf_select\"script _KF_.SelectKeyframe()\"");
@@ -60,7 +60,8 @@ SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
 SendToConsole("clear;script _KF_.PostSpawn()");
 
 
-const KF_FLT_EPS = 1.e-3;
+const FLT_EPSILON = 1.192092896e-7;
+const KF_SAMPLE_COUNT_DEFAULT = 100;
 
 local vec3_origin = Vector();
 local s_flDisplayTime = FrameTime() * 6;
@@ -73,8 +74,8 @@ local HELPER_EF =
 
 if ( !("_Process" in this) )
 {
-	g_FrameTime <- 0.015625;
-	g_szMapName <- split( GetMapName(), "/" ).top();
+	g_FrameTime <- 1.0 / 64.0;
+	g_szMapName <- split( GetMapName(), "/" ).top().tolower();
 	MAX_COORD_VEC <- Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
 
 	SND_BUTTON					<- "UIPanorama.container_countdown";
@@ -143,8 +144,6 @@ if ( !("_Process" in this) )
 	m_szInterpDescOrigin <- null;
 
 	m_bAutoFillBoundaries <- false;
-	m_flSampleRate <- 0.01; // KF_INTERP_SAMPLE_RATE_DEFAULT
-	m_nSampleCount <- 0;
 
 	m_nMouseOver <- 0;
 	m_bGizmoEnabled <- false;
@@ -164,7 +163,6 @@ if ( !("_Process" in this) )
 	m_vecLastRight <- null;
 	m_vecPivotPoint <- null;
 
-	m_nDrawResolution <- 10; // default draw resolution
 	m_nSelectedKeyframe <- -1;
 	m_nCurKeyframe <- 0;
 	m_nPlaybackIdx <- -1;
@@ -178,6 +176,9 @@ if ( !("_Process" in this) )
 	m_bSeeing <- false;
 	m_bReplaceOnClick <- false;
 	m_bInsertOnClick <- false;
+
+	in_moveup <- false;
+	in_movedown <- false;
 
 	in_roll_1 <- false;
 	in_roll_0 <- false;
@@ -201,8 +202,7 @@ if ( !("_Process" in this) )
 
 	AddEvent <- VS.EventQueue.AddEvent.weakref();
 	Msg <- print;
-	if ( !("Fmt" in CONST) )
-		compilestring("Fmt <- format").call(this);
+	Fmt <- format;
 	clamp <- clamp;
 	EntFireByHandle <- EntFireByHandle;
 	DrawLine <- DebugDrawLine;
@@ -215,13 +215,9 @@ player <- ToExtendedPlayer( VS.GetPlayerByIndex(1) );
 if ( !("m_hThinkCam" in this) )
 {
 	m_hThinkCam <- VS.Timer( true, g_FrameTime, null, null, false, true ).weakref();
-
 	m_hThinkEdit <- VS.Timer( true, s_flDisplayTime-FrameTime(), null, null, false, true ).weakref();
-
 	m_hThinkAnim <- VS.Timer( true, 0.5-FrameTime(), null, null, false, true ).weakref();
-
 	m_hThinkKeys <- VS.Timer( true, FrameTime()*2.5, null, null, false, true ).weakref();
-
 	m_hThinkFrame <- null;
 
 	m_hGameText <- VS.CreateEntity("game_text",
@@ -242,18 +238,18 @@ if ( !("m_hThinkCam" in this) )
 		y = 0.485
 	},true).weakref();
 
-//	m_hGameText3 <- VS.CreateEntity("game_text",
-//	{
-//		channel = 4,
-//		color = Vector(255,120,0),
-//		holdtime = s_flDisplayTime,
-//		x = 0.575,
-//		y = 0.505
-//	},true).weakref();
+	m_hGameText3 <- VS.CreateEntity("game_text",
+	{
+		channel = 4,
+		color = Vector(255,120,0),
+		holdtime = s_flDisplayTime,
+		x = 0.575,
+		y = 0.505
+	},true).weakref();
 
 	m_hHudHint <- VS.CreateEntity("env_hudhint",null,true).weakref();
 
-	m_hView <- VS.CreateEntity("point_viewcontrol",{ spawnflags = 1<<3 }).weakref();
+	m_hView <- VS.CreateEntity("point_viewcontrol",{ spawnflags = (1<<3)|(1<<7) }).weakref();
 
 	PrecacheModel("keyframes/kf_circle_orange.vmt");
 
@@ -308,7 +304,7 @@ function CameraSetEnabled( b )
 	return EntFireByHandle( m_hView, b ? "Enable" : "Disable", "", 0.0, player.self );
 }
 
-function CameraSetThink( b )
+function CameraSetThinkEnabled( b )
 {
 	return EntFireByHandle( m_hThinkCam, b ? "Enable" : "Disable" );
 }
@@ -447,7 +443,7 @@ function CurrentViewAngles()
 ::CurrentViewAngles	<- CurrentViewAngles.bindenv(this);
 
 
-class point_t
+class frame_t
 {
 	origin = null;
 	angles = null;
@@ -471,7 +467,7 @@ class point_t
 	}
 }
 
-class keyframe_t //extends point_t
+class keyframe_t //extends frame_t
 {
 	origin = null;		// Vector
 	angles = null;		// QAngle
@@ -482,6 +478,7 @@ class keyframe_t //extends point_t
 	transform = null;	// matrix3x4_t
 	fov = null;			// int
 	_fovx = null;		// float
+	samplecount = KF_SAMPLE_COUNT_DEFAULT;	// int
 
 	constructor()
 	{
@@ -592,6 +589,8 @@ class keyframe_t //extends point_t
 		VS.MatrixQuaternionFast( transform, orientation );
 
 		SetFov( src.fov );
+
+		samplecount = src.samplecount;
 	}
 
 	function _cloned( src )
@@ -865,6 +864,56 @@ function IN_FOV_0(i)
 	};
 }
 
+function IN_ThinkMoveVert()
+{
+	if ( in_moveup )
+	{
+		local u = 48.0;
+		if ( IsDucking() )
+		{
+			u = 36.0;
+		};
+
+		local v = player.GetVelocity() + MainViewUp() * u;
+		return player.SetVelocity( v );
+	};
+
+	if ( in_movedown )
+	{
+		local u = 48.0;
+		if ( IsDucking() )
+		{
+			u = 36.0;
+		};
+
+		local v = player.GetVelocity() - MainViewUp() * u;
+		return player.SetVelocity( v );
+	};
+}
+
+function IN_Move(i)
+{
+	switch ( i )
+	{
+	case 0:
+		in_moveup = in_movedown = false;
+		m_hThinkKeys.__KeyValueFromFloat( "refiretime", FrameTime()*2.5 );
+		return EntFireByHandle( m_hThinkKeys, "Disable" );
+
+	case 1:
+		in_moveup = true;
+		break;
+
+	case 2:
+		in_movedown = true;
+		break;
+	}
+
+	m_hThinkKeys.__KeyValueFromFloat( "refiretime", 0.01 );
+	VS.OnTimer( m_hThinkKeys, IN_ThinkMoveVert );
+	EntFireByHandle( m_hThinkKeys, "Enable" );
+}
+
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
@@ -993,6 +1042,7 @@ function SetEditMode( state = null, msg = true )
 		EntFireByHandle( m_hThinkEdit, "Disable" );
 		EntFireByHandle( m_hThinkAnim, "Disable" );
 		EntFireByHandle( m_hGameText2, "SetText", "" );
+		EntFireByHandle( m_hGameText3, "SetText", "" );
 
 		if (msg)
 			Msg("Edit mode disabled.\n");
@@ -1083,7 +1133,6 @@ function SelectKeyframe( bShowMsg = 1 )
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to select.\n");
 
-	// ( m_nSelectedKeyframe != m_nCurKeyframe )
 	if ( m_nSelectedKeyframe == -1 )
 	{
 		m_nSelectedKeyframe = m_nCurKeyframe;
@@ -1151,7 +1200,7 @@ function PrevKeyframe()
 
 // kf_see
 // TODO: a better method?
-function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
+function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 ) : (vec3_origin)
 {
 	if ( bUnsafeUnsee )
 	{
@@ -1182,7 +1231,7 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
 
 	if ( m_bSeeing )
 	{
-		player.SetVelocity( Vector() );
+		player.SetVelocity( vec3_origin );
 
 		if ( m_nSelectedKeyframe == -1 )
 			m_nSelectedKeyframe = m_nCurKeyframe;
@@ -1283,11 +1332,6 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 
 			curkey = m_KeyFrames[ m_nCurKeyframe ];
 
-			if ( curkey.fov )
-			{
-				m_hGameText2.__KeyValueFromString( "message", "FOV: " + curkey.fov );
-			};
-
 			if ( bSelected )
 			{
 				m_hGameText.__KeyValueFromString( "message", Fmt("KEY: %d (HOLD)", m_nCurKeyframe) );
@@ -1298,8 +1342,20 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 			};
 
 			EntFireByHandle( m_hGameText, "Display", "", 0, player.self );
-			EntFireByHandle( m_hGameText2, "Display", "", 0, player.self );
-			EntFireByHandle( m_hGameText2, "SetText", "" );
+
+			if ( curkey.fov )
+			{
+				m_hGameText2.__KeyValueFromString( "message", "FOV: " + curkey.fov );
+				EntFireByHandle( m_hGameText2, "Display", "", 0, player.self );
+				EntFireByHandle( m_hGameText2, "SetText", "" );
+			};
+
+			if ( curkey.samplecount != KF_SAMPLE_COUNT_DEFAULT )
+			{
+				m_hGameText3.__KeyValueFromString( "message", "frametime: " + curkey.samplecount * g_FrameTime );
+				EntFireByHandle( m_hGameText3, "Display", "", 0, player.self );
+				EntFireByHandle( m_hGameText3, "SetText", "" );
+			};
 
 			SetHelperOrigin( curkey.origin );
 		};
@@ -1352,7 +1408,9 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 	if ( m_bShowPath )
 	{
 		local pPath = m_PathData;
-		local res = m_nDrawResolution;
+		// NOTE: When sampling rate was global and static, draw resolution could be precalculated.
+		// This becomes complicated when keys can have variable amount of samples.
+		local res = 10;
 		local len = pPath.len() - res;
 		local ToVector = VS.AngleVectors;
 
@@ -1368,26 +1426,26 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 
 				// draw angles if close enough, for perf
 				local dist = ( pt - viewOrigin ).LengthSqr();
-				if ( dist < 2.3593e+6 )
+				if ( dist < 2.3593e+6 )	// 1536
 				{
 					DrawLine( pt, pt + ToVector( pPath[i].angles ) * 16, 255, 128, 255, true, s_flDisplayTime );
 				};
 			}
 
-			local bounds = true;
+			local bounds = false;
 			local offset = 0;
 
 			if ( m_Selection[0] )
 			{
+				bounds = true;
 				VS.DrawSphere( m_PathData[ m_Selection[0] ].origin, 8.0, 6, 6, 255, 196, 0, true, s_flDisplayTime );
-			}
-			else bounds = false;
+			};
 
 			if ( m_Selection[1] )
 			{
+				bounds = true;
 				VS.DrawSphere( m_PathData[ m_Selection[1] ].origin, 8.0, 6, 6, 255, 196, 0, true, s_flDisplayTime );
-			}
-			else bounds = false;
+			};
 
 			if ( bounds )
 			{
@@ -1402,20 +1460,26 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 			VS.DrawCapsule( origin - s_vecMins, origin + s_vecMins, 8, 0,255,255,true, s_flDisplayTime );
 
 			// Path selection:
-			// Find the path player is looking at around the nearest keyframe
+			// Find the frame on path the player is looking at around the nearest keyframe
 			if ( m_fPathSelection != 0 )
 			{
 				if ( nNearestKey < 2 )
 					nNearestKey = 2;
-				else if ( nNearestKey > (count-3) )
-					nNearestKey = count-3;;
+				else if ( nNearestKey > (count-4) )
+					nNearestKey = count-4;;
 
-				local end = nNearestKey * m_nSampleCount;
-				local i = (nNearestKey-2) * m_nSampleCount;
+				// Get the frame count up to this point
+				local i = GetSampleCount( 1, nNearestKey-1 );
+
+				local end = i +
+					m_KeyFrames[nNearestKey-1].samplecount +
+					m_KeyFrames[nNearestKey].samplecount +
+					m_KeyFrames[nNearestKey+1].samplecount;
+
 				local nSelect = 0;
 				local flThreshold = 0.9;
 
-				while ( i < end )
+				do
 				{
 					local dir = m_PathData[i].origin - viewOrigin;
 					dir.Norm();
@@ -1426,8 +1490,7 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 						flThreshold = dot;
 						nSelect = i;
 					};
-					++i;
-				}
+				} while ( ++i < end );
 
 				m_nCurPathSelection = nSelect;
 
@@ -1484,10 +1547,6 @@ function AnimThink()
 		};
 	};
 }
-
-
-VS.OnTimer( m_hThinkEdit, EditModeThink, this );
-VS.OnTimer( m_hThinkAnim, AnimThink, this );
 
 
 // TODO: use SetThink
@@ -2129,32 +2188,47 @@ function GizmoOnMouseRelease()
 		m_nTranslation = 0;
 		m_bDirty = true;
 
-		// compile path around key
-		local max = m_KeyFrames.len()-2;
+		//
+		// Compile path around the current key frame for live feedback
+		//
 
-		// is there enough path frames?
-		if ( (((max-2)* m_nSampleCount) + m_nSampleCount - 1) in m_PathData )
+		// FIXME
+		if ( m_bAutoFillBoundaries )
+			return;
+
+		local max = m_KeyFrames.len()-3;
+
+		local cur = m_nCurKeyframe;
+		if ( cur <= 1 )
+			cur = 2;
+		else if ( cur >= max )
+			cur = max-1;;
+
+		// Get the frame count up to this point
+		local offset = GetSampleCount( 1, cur-1 );
+
+		// Copied from _Process::CompilePath
+		for ( local nKeyIdx = cur-1; nKeyIdx <= cur+1; ++nKeyIdx )
 		{
-			local cur = m_nCurKeyframe;
-			if ( cur <= 1 )
-				cur = 2;
-			else if ( cur >= max )
-				cur = max-1;;
+			local key = m_KeyFrames[nKeyIdx];
+			local flSampleRate = 1.0 / key.samplecount;
+			local nSampleFrame = 0, t = 0.0;
 
-			for ( local w,t,nSampleFrame,nKey = cur-1; nKey < cur+1; ++nKey )
+			for ( ; t < 1.0; ++nSampleFrame, t += flSampleRate + FLT_EPSILON )
 			{
-				w = (nKey-1) * m_nSampleCount;
-				for ( nSampleFrame = 0, t = 0.0; 1.0 - t > KF_FLT_EPS; ++nSampleFrame, t += m_flSampleRate )
-				{
-					local org = Vector();
-					local ang = Vector();
-					_Process.SplineOrigin( nKey, t, org );
-					_Process.SplineAngles( nKey, t, ang );
-					m_PathData[ w + nSampleFrame ].origin = org;
-					m_PathData[ w + nSampleFrame ].angles = ang;
-				}
+				local org = Vector();
+				local ang = Vector();
+				_Process.SplineOrigin( nKeyIdx, t, org );
+				_Process.SplineAngles( nKeyIdx, t, ang );
+				m_PathData[ offset + nSampleFrame ].origin = org;
+				m_PathData[ offset + nSampleFrame ].angles = ang;
 			}
-		};
+
+			if ( nSampleFrame != key.samplecount )
+				Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n", nSampleFrame, key.samplecount ));
+
+			offset += nSampleFrame;
+		}
 	};
 }
 
@@ -2770,31 +2844,84 @@ function SetOriginInterp( i = null )
 	PlaySound(SND_BUTTON);
 }
 
-
-function SetSamplingRate( f )
+//
+// Sets how many samples to take until the next keyframe.
+//
+// kf_samplecount
+//
+function SetSampleCount( nSampleCount, nKey = -1 )
 {
 	if ( m_bCompiling || m_bPreview )
 		return MsgFail("Cannot change sampling rate while compiling!\n");
 
-	if ( f == 0 )
+	if ( nKey == -1 )
+		nKey = m_nCurKeyframe;
+
+	if ( nKey == -1 )
+		return MsgFail("No keyframe is selected\n");
+
+	nSampleCount = nSampleCount.tointeger();
+
+	if ( nSampleCount < 0 )
+		return MsgFail("Invalid input "+nSampleCount+"\n");
+
+	if ( nSampleCount == 0 )
+		nSampleCount = KF_SAMPLE_COUNT_DEFAULT;
+
+	local flTime = g_FrameTime * nSampleCount;
+
+	local key = m_KeyFrames[ nKey ];
+
+	if ( key.samplecount != nSampleCount )
 	{
-		f = 0.01; // KF_INTERP_SAMPLE_RATE_DEFAULT
+		key.samplecount = nSampleCount;
+		m_bDirty = true;
 	};
 
-	f = f.tofloat();
-
-	if ( f < 0.001 || f > 0.5 )
-		return MsgFail("Input out of range [0.001, 0.5]\n");
-
-	if ( m_flSampleRate != f )
-		m_bDirty = true;
-
-	m_flSampleRate = f;
-
-	Msg(Fmt( "Interpolation sampling rate set to: %f\n", f ));
+	Msg(Fmt( "Interpolation sample count on keyframe #%d is set to: %d (%fs)\n", nKey, nSampleCount, flTime ));
 	PlaySound(SND_BUTTON);
 }
 
+//
+// Sets the time it takes to travel until the next keyframe.
+//
+// kf_frametime
+//
+function SetFrameTime( flTime, nKey = -1 )
+{
+	if ( m_bCompiling || m_bPreview )
+		return MsgFail("Cannot change sampling rate while compiling!\n");
+
+	if ( nKey == -1 )
+		nKey = m_nCurKeyframe;
+
+	if ( nKey == -1 )
+		return MsgFail("No keyframe is selected\n");
+
+	flTime = flTime.tofloat();
+
+	if ( flTime < 0.0 )
+		return MsgFail("Invalid input "+flTime+"\n");
+
+	if ( flTime == 0.0 )
+		flTime = g_FrameTime * KF_SAMPLE_COUNT_DEFAULT;
+
+	local nSampleCount = ( flTime / g_FrameTime ).tointeger();
+
+	// How long it will take on this server. Precision depends on the server tickrate and g_FrameTime.
+	flTime = g_FrameTime * nSampleCount;
+
+	local key = m_KeyFrames[ nKey ];
+
+	if ( key.samplecount != nSampleCount )
+	{
+		key.samplecount = nSampleCount;
+		m_bDirty = true;
+	};
+
+	Msg(Fmt( "Interpolation sample count on keyframe #%d is set to: %d (%fs)\n", nKey, nSampleCount, flTime ));
+	PlaySound(SND_BUTTON);
+}
 
 // kf_auto_fill_boundaries
 function SetAutoFillBoundaries( i = null )
@@ -2812,6 +2939,20 @@ function SetAutoFillBoundaries( i = null )
 }
 
 //--------------------------------------------------------------
+
+//
+// Gets the frame count in the specified key range
+//
+function GetSampleCount( first, last )
+{
+	if ( !(first in m_KeyFrames && last in m_KeyFrames) )
+		throw "out of range";
+
+	local c = 0;
+	for ( ; first < last; ++first )
+		c += m_KeyFrames[first].samplecount;
+	return c;
+}
 
 // kf_compile
 function Compile()
@@ -2937,28 +3078,21 @@ function _Process::FillBoundaries()
 function _Process::StartCompile()
 {
 	if ( m_bAutoFillBoundaries )
-	{
 		FillBoundaries();
-	};
 
-	m_nSampleCount = ( (1.0 / m_flSampleRate) + KF_FLT_EPS ).tointeger();
-	m_nDrawResolution = max( m_nSampleCount / 10, 1 );
-
-	local count = m_KeyFrames.len() - 3;
-	local size = count * m_nSampleCount;
+	// Calculate total frame count
+	local size = GetSampleCount( 1, m_KeyFrames.len() - 2 );
 
 	// init path
 	m_PathData.clear();
 	m_PathData.resize( size );
 	for ( local i = 0; i < size; ++i )
 	{
-		m_PathData[i] = point_t();
+		m_PathData[i] = frame_t();
 	}
 
 	Msg(Fmt( "Keyframe count  : %d\n", m_KeyFrames.len() ));
 	Msg(Fmt( "Frame count     : %d\n", size ));
-	Msg(Fmt( "Sample count    : %d\n", m_nSampleCount ));
-	Msg(Fmt( "Sample rate     : %f\n", m_flSampleRate ));
 	Msg(Fmt( "Angle interp    : %s\n", m_szInterpDescAngle ));
 	Msg(Fmt( "Origin interp   : %s\n", m_szInterpDescOrigin ));
 	Msg(Fmt( "Fill boundaries : %d\n\n", m_bAutoFillBoundaries.tointeger() ));
@@ -2966,7 +3100,7 @@ function _Process::StartCompile()
 	Msg("Compiling");
 
 	CreateThread( CompilePath );
-	return AddEvent( StartThread, g_FrameTime, this );
+	return StartThread();
 }
 
 function _Process::SplineOrigin( i, frac, out ) : ( g_InterpolatorMap )
@@ -3053,31 +3187,44 @@ function _Process::SplineAngles( i, frac, out )
 			VS.VectorAngles( out, out );
 			return;
 		}
-		// TODO:
 		// case KF_INTERP_AFX:
 	}
 }
 
 function _Process::CompilePath()
 {
-	local len = m_KeyFrames.len()-2;
+	local len = m_KeyFrames.len()-3;
+	local offset = 0;
 
-	for ( local w,t,nSampleFrame,nKey = 1; nKey < len; ++nKey )
+	for ( local nKeyIdx = 1; nKeyIdx <= len; ++nKeyIdx )
 	{
-		w = (nKey-1) * m_nSampleCount;
-		for ( nSampleFrame = 0, t = 0.0; 1.0 - t > KF_FLT_EPS; ++nSampleFrame, t += m_flSampleRate )
+		local key = m_KeyFrames[nKeyIdx];
+		local flSampleRate = 1.0 / key.samplecount;
+		local nSampleFrame = 0, t = 0.0;
+
+		for ( ; t < 1.0; ++nSampleFrame, t += flSampleRate + FLT_EPSILON )
 		{
 			local org = Vector();
 			local ang = Vector();
-			SplineOrigin( nKey, t, org );
-			SplineAngles( nKey, t, ang );
-			m_PathData[ w + nSampleFrame ].origin = org;
-			m_PathData[ w + nSampleFrame ].angles = ang;
+			SplineOrigin( nKeyIdx, t, org );
+			SplineAngles( nKeyIdx, t, ang );
+			m_PathData[ offset + nSampleFrame ].origin = org;
+			m_PathData[ offset + nSampleFrame ].angles = ang;
 		}
 
-		Msg(".");
+		if ( nSampleFrame != key.samplecount )
+			Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n", nSampleFrame, key.samplecount ));
 
-		ThreadSleep( g_FrameTime );
+		offset += nSampleFrame;
+
+		// Sleeping on every other section of sampling is a good trade off between
+		// decreased compilation time and game strain.
+		// 3+ completely halts the game, which is undesirable however short the duration.
+		if ( !(nKeyIdx % 2) )
+		{
+			Msg(".");
+			ThreadSleep( g_FrameTime );
+		};
 	}
 
 	if ( m_nInterpolatorAngle == KF_INTERP_LINEAR_BLEND )
@@ -3085,21 +3232,20 @@ function _Process::CompilePath()
 		Msg("|");
 		// smooth twice?
 		SmoothAngles( 10 );
-		ThreadSleep( 0.1 );
 		SmoothAngles( 10 );
-		ThreadSleep( 0.1 );
 	};
 
 	CompileFOV();
-	return AddEvent( FinishCompile, g_FrameTime, this );
+
+	ThreadSleep( g_FrameTime );
+
+	FinishCompile();
 }
 
 function _Process::FinishCompile()
 {
 	if ( m_bAutoFillBoundaries )
-	{
 		FillBoundariesRevert();
-	};
 
 	// Assert compilation
 	local c = m_PathData.len();
@@ -3166,7 +3312,6 @@ function _Process::CompileFOV()
 	};
 
 	local i = 0, c = m_KeyFrames.len()-1;
-	local t = g_FrameTime / m_flSampleRate;
 
 	while ( ++i < c )
 	{
@@ -3182,8 +3327,11 @@ function _Process::CompileFOV()
 			if ( !f1.fov )
 				continue;
 
-			local rate = (j - i) * t;
-			local frame = (i - 1) * m_nSampleCount;
+			// time to move between previous and current fov keys
+			local rate = g_FrameTime * GetSampleCount( i, j );
+
+			// frame to start fov lerping
+			local frame = GetSampleCount( 1, i );
 
 			// not ready to compile
 			if ( !(frame in m_PathData) )
@@ -3200,6 +3348,19 @@ function _Process::CompileFOV()
 
 function _Process::SmoothAngles( r )
 {
+	// These differences save seconds in especially large data sets.
+	local nSleepRate;
+
+	if ( m_bSmoothExponential )
+	{
+		nSleepRate = 5200 / r;
+	}
+	else
+	{
+		// Quaternion alignment in QuaternionBlend slows this down significantly.
+		nSleepRate = 4200 / r;
+	};
+
 	local i, c;
 
 	if ( m_Selection[0] && m_Selection[1] )
@@ -3216,7 +3377,7 @@ function _Process::SmoothAngles( r )
 	local stack = [];
 	for ( ; i < c; i++ )
 	{
-		if ( !(i % m_nSampleCount) )
+		if ( !(i % nSleepRate) )
 		{
 			Msg(".");
 			ThreadSleep( g_FrameTime );
@@ -3266,6 +3427,8 @@ function _Process::SmoothAnglesStack( stack )
 
 function _Process::SmoothOrigin( r )
 {
+	local nSleepRate = 4200 / r;
+
 	local i, c;
 
 	if ( m_Selection[0] && m_Selection[1] )
@@ -3282,7 +3445,7 @@ function _Process::SmoothOrigin( r )
 	local stack = [];
 	for ( ; i < c; i++ )
 	{
-		if ( !(i % m_nSampleCount) )
+		if ( !(i % nSleepRate) )
 		{
 			Msg(".");
 			ThreadSleep( g_FrameTime );
@@ -3536,13 +3699,9 @@ function SmoothAngles( exp = 0, r = 10 ) : (ThreadHelper)
 	function WriteCoord( v )
 	{
 		if ( VS.CloseEnough( v, 0.0, 1.e-5 ) )
-		{
-			return "0.00";
-		}
-		else
-		{
-			return Fmt( "%f", v );
-		};
+			v = 0.0;
+
+		return Fmt( "%f", v );
 	}
 
 	function ReadCoord( v )
@@ -3666,13 +3825,15 @@ function Save( i = null )
 	VS.Log.export = true;
 	VS.Log.filter = "L ";
 
+	Msg( "Saving, please wait...\n" );
+
 	_Process.CreateThread( _Save.Process, _Save );
 	_Process.StartThread();
 }
 
 function _Save::Process()
 {
-	_Process.ThreadSleep( 0.01 );
+	_Process.ThreadSleep( g_FrameTime );
 
 	VS.Log.Clear();
 
@@ -3704,15 +3865,13 @@ function _Save::Write()
 	// body ---
 
 	local c = m_pSaveData.len();
-	local sl = 0;
 
 	for ( local i = 0; i < c; i++ )
 	{
 		Add( WriteFrame( m_pSaveData[i] ) );
 
-		if ( ++sl >= 100 )
+		if ( !(i % 200) )
 		{
-			sl = 0;
 			_Process.ThreadSleep( g_FrameTime );
 		};
 	}
@@ -3734,23 +3893,20 @@ function _Save::Write()
 
 function _Save::EndWrite()
 {
-	local file = VS.Log.Run( null, function(f)
+	VS.Log.Run( null, function( file )
 	{
 		m_bSaveInProgress = false;
 		PlaySound( SND_EXPORT_SUCCESS );
-	} );
 
-	if ( file )
-	{
 		if ( m_nSaveType == KF_DATA_TYPE_PATH )
 		{
-			Msg(Fmt( "Path data is exported: /csgo/%s.log\n\n", file ));
+			Msg(Fmt( "Exported path data: /csgo/%s.log\n\n", file ));
 		}
 		else if ( m_nSaveType == KF_DATA_TYPE_KEYFRAMES )
 		{
-			Msg(Fmt( "Keyframe data is exported: /csgo/%s.log\n\n", file ));
+			Msg(Fmt( "Exported keyframe data: /csgo/%s.log\n\n", file ));
 		};;
-	};
+	} );
 }
 
 
@@ -3943,13 +4099,12 @@ local NewFrame = function()
 		return keyframe_t();
 
 	if ( m_nLoadType == KF_DATA_TYPE_PATH )
-		return point_t();
+		return frame_t();
 }
 
 function _Load::LoadInternal() : ( NewFrame )
 {
 	Msg(".");
-	local sl = 0;
 
 	if ( m_nLoadVer == KF_SAVE_V2 )
 	{
@@ -3963,10 +4118,10 @@ function _Load::LoadInternal() : ( NewFrame )
 			m_pLoadData[ frame++ ] = p;
 			i = ReadFrame( p, data, i );
 
-			if ( ++sl >= 100 )
+			// Loading is fast, put a high limit
+			if ( !(i % 10000) )
 			{
 				Msg(".");
-				sl = 0;
 				_Process.ThreadSleep( g_FrameTime );
 			};
 		}
@@ -4004,10 +4159,9 @@ function _Load::LoadInternal() : ( NewFrame )
 			p.SetOrigin( org );
 			p[rotSet]( rot );
 
-			if ( ++sl >= 100 )
+			if ( !(i % 10000) )
 			{
 				Msg(".");
-				sl = 0;
 				_Process.ThreadSleep( g_FrameTime );
 			};
 		}
@@ -4052,6 +4206,12 @@ function LoadFinishInternal()
 			break;
 		};
 	}
+
+	// No longer dirty
+	if ( m_nLoadType & KF_DATA_TYPE_PATH )
+	{
+		m_bDirty = false;
+	};
 
 	local szInput = VS.GetVarName( m_pLoadInput );
 
@@ -4123,17 +4283,17 @@ function CameraThink()
 		_Process.SplineOrigin( m_nPlaybackIdx, m_flPreviewFrac, pos );
 		_Process.SplineAngles( m_nPlaybackIdx, m_flPreviewFrac, ang );
 
-		// local fr = ((m_nPlaybackIdx-1) * m_nSampleCount) + ( (m_flPreviewFrac / m_flSampleRate) + KF_FLT_EPS ).tointeger();
-
 		CameraSetOrigin( pos );
 		CameraSetAngles( ang );
 
 		// HACKHACK: set player angles as well to get the correct angle in CurrentViewAngles in edit mode
 		player.SetAngles( ang.x, ang.y, 0 );
 
-		m_flPreviewFrac += m_flSampleRate;
+		local key = m_KeyFrames[ m_nPlaybackIdx ];
 
-		if ( 1.0 - m_flPreviewFrac <= KF_FLT_EPS )
+		m_flPreviewFrac += 1.0 / key.samplecount + FLT_EPSILON;
+
+		if ( m_flPreviewFrac >= 1.0 )
 		{
 			m_flPreviewFrac = 0.0;
 
@@ -4142,8 +4302,6 @@ function CameraThink()
 		};
 	};
 }
-
-VS.OnTimer( m_hThinkCam, CameraThink, this );
 
 
 const KF_PLAY_DEFAULT = 0;;
@@ -4219,9 +4377,7 @@ function Play( type = KF_PLAY_DEFAULT )
 		Msg("preview mode\n");
 
 		if ( m_bAutoFillBoundaries )
-		{
 			_Process.FillBoundaries();
-		};
 
 		m_nPlaybackTarget = m_KeyFrames.len() - 2;
 		m_nPlaybackIdx = 1;
@@ -4242,7 +4398,7 @@ function Play( type = KF_PLAY_DEFAULT )
 	player.SetAngles( ang.x, ang.y, 0 );
 
 	CameraSetEnabled( true );
-	CameraSetThink( false );
+	CameraSetThinkEnabled( false );
 
 	MsgHint("Starting in 3...\n");
 	PlaySound( SND_COUNTDOWN_BEEP );
@@ -4265,7 +4421,7 @@ function _Play()
 	m_bPlaybackPending = false;
 	m_bInPlayback = true;
 	Msg("Playback has started...\n\n");
-	CameraSetThink( true );
+	CameraSetThinkEnabled( true );
 }
 
 // kf_stop
@@ -4294,16 +4450,14 @@ function Stop()
 	if ( m_bPreview )
 	{
 		if ( m_bAutoFillBoundaries )
-		{
 			_Process.FillBoundariesRevert();
-		};
 	};
 
 	m_bInPlayback = false;
 	m_bPreview = false;
 
 	CameraSetEnabled( false );
-	CameraSetThink( false );
+	CameraSetThinkEnabled( false );
 
 	CameraSetFov(0,0);
 
@@ -4464,7 +4618,8 @@ CompileFOV <- _Process.CompileFOV.bindenv(_Process);
 // global bindings for easy use with 'script kf_XX()'
 ::kf_roll <- SetKeyframeRoll.bindenv(this);
 ::kf_fov <- SetKeyframeFOV.bindenv(this);
-::kf_res <- SetSamplingRate.bindenv(this);
+::kf_samplecount <- SetSampleCount.bindenv(this);
+::kf_frametime <- SetFrameTime.bindenv(this);
 ::kf_load <- _Load.LoadData.bindenv(_Load);
 ::kf_trim <- Trim.bindenv(this);
 ::kf_transform <- TransformKeyframes.bindenv(this);
@@ -4473,32 +4628,32 @@ CompileFOV <- _Process.CompileFOV.bindenv(_Process);
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
+VS.OnTimer( m_hThinkEdit, EditModeThink, this );
+VS.OnTimer( m_hThinkAnim, AnimThink, this );
+VS.OnTimer( m_hThinkCam, CameraThink, this );
 
 function PostSpawn()
 {
 	if ( player.GetTeam() != 2 && player.GetTeam() != 3 )
 		player.SetTeam(2);
-
-	PlaySound( SND_SPAWN );
 	player.SetHealth(1337);
 
-	// init
-	CameraSetEnabled( true );
-	CameraSetEnabled( false );
+	SendToConsole("drop;drop;drop;drop;drop");
+
+	PlaySound( SND_SPAWN );
+
+	if ( !m_bPlaybackPending && !m_bInPlayback )
+	{
+		// init
+		CameraSetEnabled( true );
+		CameraSetEnabled( false );
+	};
 
 	ListenMouse(1);
 	SetAngleInterp( m_nInterpolatorAngle );
 	SetOriginInterp( m_nInterpolatorOrigin );
 	SetEditMode( m_bInEditMode );
 	SetHelperOrigin( MAX_COORD_VEC );
-
-	for ( local i = 18; i--; ) Chat(" ");
-	Chat(TextColor.Uncommon+" --------------------------------");
-	Chat("");
-	Chat(Fmt( "%s[Keyframes Script v%s]", TextColor.Achievement, version ));
-	Chat(Fmt( "%skf_cmd%s : Print all commands", TextColor.Normal, TextColor.Immortal ));
-	Chat("");
-	Chat(TextColor.Uncommon+" --------------------------------");
 
 	// print after Steamworks Msg
 	if ( GetDeveloperLevel() > 0 )
@@ -4509,8 +4664,6 @@ function PostSpawn()
 	{
 		WelcomeMsg();
 	};
-
-	SendToConsole("drop;drop;drop;drop;drop");
 
 	delete PostSpawn;
 }
@@ -4524,8 +4677,11 @@ function WelcomeMsg()
 
 	if ( !VS.IsInteger( 128.0 / tr ) )
 	{
-		Msg(Fmt( "[!] Invalid tickrate (%g)! Only 128 and 64 tickrates are supported.\n", tr ));
-		Chat(Fmt( "%s[!] %sInvalid tickrate ( %s%g%s )! Only 128 and 64 tickrates are supported.", TextColor.Red, TextColor.Normal, TextColor.Gold, tr, TextColor.Normal ));
+		Msg(Fmt( "[!] Invalid tickrate (%g)! Only 128 and 64 tickrates are supported.\n\n", tr ));
+	}
+	else
+	{
+		Msg(Fmt( "Server tickrate: %g\n\n", tr ));
 	};
 
 	delete WelcomeMsg;
@@ -4576,7 +4732,8 @@ function PrintCmd()
 	Msg("                        :\n");
 	Msg("script kf_fov(val)      : Set FOV data on the selected keyframe\n");
 	Msg("script kf_roll(val)     : Set camera roll on the selected keyframe\n");
-	Msg("script kf_res(val)      : Set interpolation sampling rate\n");
+	Msg("script kf_frametime(val): Sets the time it takes to travel until the next keyframe\n");
+	Msg("script kf_samplecount(val): Sets how many samples to take until the next keyframe\n");
 	Msg("                        :\n");
 	Msg("script kf_transform()   : Rotate all keyframes around key with optional translation offset (idx,offset,rotation)\n");
 	Msg("                        :\n");

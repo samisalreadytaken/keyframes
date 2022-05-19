@@ -5,18 +5,12 @@ Quick smooth camera path creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.7-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.9-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 
 ## Installation
-Merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
-
-This only adds 8 files to your /csgo/ folder. It does not overwrite any game files, and it does not interfere with the game in any way. It can only be used on your own local server.
-
-
-### Downloading
-Manually download the repository ([`Code > Download ZIP`](https://github.com/samisalreadytaken/keyframes/archive/master.zip)), then extract the folder.
+Manually download the repository ([`Code > Download ZIP`](https://github.com/samisalreadytaken/keyframes/archive/master.zip)), then extract and merge the `/csgo/` folder with your `/steamapps/common/Counter-Strike Global Offensive/csgo/` folder.
 
 Alternatively run the installation script of your choice:
 
@@ -78,7 +72,8 @@ Command                | Description
 ---                    | ---
 `script kf_fov(val)`   | Set FOV data on the selected keyframe
 `script kf_roll(val)`  | Set camera roll on the selected keyframe
-`script kf_res(val)`   | Set interpolation sampling rate
+`script kf_frametime(val)`| Sets the time it takes to travel until the next keyframe
+`script kf_samplecount(val)`| Sets how many samples to take until the next keyframe
 ---                    | ---
 `script kf_transform()`| Rotate all keyframes around key with optional translation offset (idx,offset,rotation)
 ---                    | ---

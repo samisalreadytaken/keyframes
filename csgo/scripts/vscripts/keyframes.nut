@@ -2,12 +2,14 @@
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
 //-----------------------------------------------------------------------
-local VERSION = "1.2.9";
+local VERSION = "1.2.10";
 
 IncludeScript("vs_library");
 
 if ( !("_KF_" in getroottable()) )
-	::_KF_ <- { version = VERSION };;
+	::_KF_ <- { version = "" };;
+
+_KF_.version = VERSION;
 
 local _ = function(){
 
@@ -57,7 +59,7 @@ SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
 
 //--------------------------------------------------------------
 
-SendToConsole("clear;script _KF_.PostSpawn()");
+SendToConsole("script _KF_.PostSpawn()");
 
 
 const FLT_EPSILON = 1.192092896e-7;
@@ -138,8 +140,8 @@ if ( !("_Process" in this) )
 	m_nCurPathSelection <- 0;
 	m_fPathSelection <- 0;
 
-	m_nInterpolatorAngle <- 0;
-	m_nInterpolatorOrigin <- 0;
+	m_nInterpolatorAngle <- null;
+	m_nInterpolatorOrigin <- null;
 	m_szInterpDescAngle <- null;
 	m_szInterpDescOrigin <- null;
 
@@ -281,7 +283,7 @@ DrawBox( vec3_origin, vec3_origin, Vector(1,1,1), 0, 0, 0, 254, 1 );
 
 function CameraSetAngles(v)
 {
-	return m_hView.SetAngles(v.x,v.y,v.z);
+	return m_hView.SetAngles( v.x, v.y, v.z );
 }
 
 function CameraSetForward(v)
@@ -387,9 +389,28 @@ function IsDucking()
 	return player.GetBoundingMaxs().z != 72.0;
 }
 
+function SetViewOrigin( vec )
+{
+	local origin = player.GetOrigin();
+
+	origin.x = vec.x;
+	origin.y = vec.y;
+	origin.z = vec.z - ( MainViewOrigin().z - origin.z );
+
+	return player.SetAbsOrigin( origin );
+}
+
+function SetViewForward( vec )
+{
+	return player.SetForwardVector( vec );
+}
+
 function MainViewOrigin()
 {
-	return player.EyePosition();
+	// CSGO view render origin is offset from the eye position (origin+viewoffset)
+	local viewOrigin = player.EyePosition();
+	viewOrigin.z += 0.062561;
+	return viewOrigin;
 }
 
 function MainViewAngles()
@@ -414,24 +435,26 @@ function MainViewUp()
 
 function CurrentViewOrigin()
 {
+	// NOTE: View entity origin/angles are slightly offset, return keyframe angles.
 	if ( m_bSeeing )
 		return m_KeyFrames[ m_nCurKeyframe ].origin;
 
 	if ( m_bInPlayback && !m_bPreview )
 		return m_PathData[ m_nPlaybackIdx ].origin;
 
-	return player.EyePosition();
+	return MainViewOrigin();
 }
 
 function CurrentViewAngles()
 {
+	// NOTE: View entity origin/angles are slightly offset, return keyframe angles.
 	if ( m_bSeeing )
 		return m_KeyFrames[ m_nCurKeyframe ].angles;
 
 	if ( m_bInPlayback && !m_bPreview )
 		return m_PathData[ m_nPlaybackIdx ].angles;
 
-	return player.EyeAngles();
+	return MainViewAngles();
 }
 
 ::MainViewOrigin	<- MainViewOrigin.bindenv(this);
@@ -478,10 +501,13 @@ class keyframe_t //extends frame_t
 	transform = null;	// matrix3x4_t
 	fov = null;			// int
 	_fovx = null;		// float
-	samplecount = KF_SAMPLE_COUNT_DEFAULT;	// int
+	samplecount = 0;	// int
+	frametime = 0.0;	// float
 
-	constructor()
+	constructor() : (g_FrameTime)
 	{
+		samplecount = KF_SAMPLE_COUNT_DEFAULT;
+		frametime = KF_SAMPLE_COUNT_DEFAULT * g_FrameTime;
 		transform = matrix3x4_t();
 		Init();
 	}
@@ -540,8 +566,7 @@ class keyframe_t //extends frame_t
 		VS.MatrixSetColumn( up, 2, transform );
 	}
 
-	// from matrix
-	function Update()
+	function UpdateFromMatrix()
 	{
 		VS.MatrixGetColumn( transform, 3, origin );
 		VS.MatrixAngles( transform, angles, origin );
@@ -554,12 +579,12 @@ class keyframe_t //extends frame_t
 		if ( !val )
 		{
 			fov = null;
-			_fovx = 90.0;
+			_fovx = VS.CalcFovX( 90.0, 16./9. * 0.75 );
 		}
 		else
 		{
 			fov = val.tointeger();
-			_fovx = fov.tofloat();
+			_fovx = VS.CalcFovX( fov.tofloat(), 16./9. * 0.75 );
 		};
 	}
 
@@ -571,7 +596,7 @@ class keyframe_t //extends frame_t
 			right,
 			up,
 			_fovx,
-			1.77778,
+			1.777778,
 			4.0,
 			32.0,
 			r, g, b, false,
@@ -590,6 +615,7 @@ class keyframe_t //extends frame_t
 
 		SetFov( src.fov );
 
+		frametime = src.frametime;
 		samplecount = src.samplecount;
 	}
 
@@ -603,22 +629,24 @@ class keyframe_t //extends frame_t
 
 //--------------------------------------------------------------
 
-local fnMoveRight1 = function(...) { return IN_ROLL_1(1); }.bindenv(this);
-local fnMoveRight0 = function(...) { return IN_ROLL_1(0); }.bindenv(this);
-local fnMoveLeft1  = function(...) { return IN_ROLL_0(1); }.bindenv(this);
-local fnMoveLeft0  = function(...) { return IN_ROLL_0(0); }.bindenv(this);
-local fnForward1   = function(...) { return IN_FOV_1(1); }.bindenv(this);
-local fnForward0   = function(...) { return IN_FOV_1(0); }.bindenv(this);
-local fnBack1      = function(...) { return IN_FOV_0(1); }.bindenv(this);
-local fnBack0      = function(...) { return IN_FOV_0(0); }.bindenv(this);
+//
+// TODO: Fix this mess
+//
+fnMoveRight1 <- function(...) { return IN_ROLL_1(1); }.bindenv(this);
+fnMoveRight0 <- function(...) { return IN_ROLL_1(0); }.bindenv(this);
+fnMoveLeft1  <- function(...) { return IN_ROLL_0(1); }.bindenv(this);
+fnMoveLeft0  <- function(...) { return IN_ROLL_0(0); }.bindenv(this);
+fnForward1   <- function(...) { return IN_FOV_1(1); }.bindenv(this);
+fnForward0   <- function(...) { return IN_FOV_1(0); }.bindenv(this);
+fnBack1      <- function(...) { return IN_FOV_0(1); }.bindenv(this);
+fnBack0      <- function(...) { return IN_FOV_0(0); }.bindenv(this);
 
 const KF_CB_CONTEXT = "KEYFRAMES";;
 
-// see mode listen WASD
-function ListenKeys(i)
-	: (fnMoveRight1, fnMoveRight0, fnMoveLeft0, fnMoveLeft1, fnForward0, fnForward1, fnBack0, fnBack1)
+
+function ListenKeys( i )
 {
-	if (i)
+	if ( i == 1 )
 	{
 		ListenMouse(0);
 
@@ -656,8 +684,7 @@ function ListenKeys(i)
 	};
 }
 
-// default listen MOUSE1, MOUSE2
-function ListenMouse(i)
+function ListenMouse( i )
 {
 	if (i)
 	{
@@ -897,6 +924,7 @@ function IN_Move(i)
 	{
 	case 0:
 		in_moveup = in_movedown = false;
+
 		m_hThinkKeys.__KeyValueFromFloat( "refiretime", FrameTime()*2.5 );
 		return EntFireByHandle( m_hThinkKeys, "Disable" );
 
@@ -1352,7 +1380,7 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 
 			if ( curkey.samplecount != KF_SAMPLE_COUNT_DEFAULT )
 			{
-				m_hGameText3.__KeyValueFromString( "message", "frametime: " + curkey.samplecount * g_FrameTime );
+				m_hGameText3.__KeyValueFromString( "message", "frametime: " + curkey.frametime );
 				EntFireByHandle( m_hGameText3, "Display", "", 0, player.self );
 				EntFireByHandle( m_hGameText3, "SetText", "" );
 			};
@@ -1548,9 +1576,8 @@ function AnimThink()
 	};
 }
 
-
 // TODO: use SetThink
-local FrameThink = function()
+function FrameThink()
 {
 	if ( m_bGizmoEnabled )
 		ManipulatorThink( m_KeyFrames[ m_nCurKeyframe ], MainViewOrigin(), MainViewForward(), MainViewAngles() );
@@ -1566,7 +1593,7 @@ local FrameThink = function()
 			MainViewForward(),
 			MainViewRight(),
 			MainViewUp(),
-			90.0, 1.77778, 1.0, 16.0 );
+			106.26, 1.77778, 1.0, 16.0 );
 
 		local worldPos = VS.ScreenToWorld( 0.5, 0.63, mat );
 		local angles = MainViewAngles();
@@ -1635,18 +1662,13 @@ function KeyframeLerp( in1, in2, frac )
 }
 
 
-function ValidateFrameThink() : (FrameThink)
+function ToggleFrameThink( b )
 {
 	if ( !m_hThinkFrame )
 	{
 		m_hThinkFrame = VS.Timer( true, FrameTime(), null, null, false, true ).weakref();
 		VS.OnTimer( m_hThinkFrame, FrameThink, this );
 	};
-}
-
-function ToggleFrameThink( b )
-{
-	ValidateFrameThink();
 
 	if ( b )
 	{
@@ -2196,36 +2218,48 @@ function GizmoOnMouseRelease()
 		if ( m_bAutoFillBoundaries )
 			return;
 
-		local max = m_KeyFrames.len()-3;
+		local max = m_KeyFrames.len()-2;
 
 		local cur = m_nCurKeyframe;
-		if ( cur <= 1 )
+		if ( cur < 2 )
 			cur = 2;
-		else if ( cur >= max )
-			cur = max-1;;
+		else if ( cur > max )
+			cur = max;;
 
 		// Get the frame count up to this point
 		local offset = GetSampleCount( 1, cur-1 );
 
 		// Copied from _Process::CompilePath
-		for ( local nKeyIdx = cur-1; nKeyIdx <= cur+1; ++nKeyIdx )
+		for ( local nKeyIdx = cur-1; nKeyIdx <= cur; ++nKeyIdx )
 		{
-			local key = m_KeyFrames[nKeyIdx];
-			local flSampleRate = 1.0 / key.samplecount;
-			local nSampleFrame = 0, t = 0.0;
+			if ( !( ( nKeyIdx + 2 ) in m_KeyFrames ) )
+				break;
 
-			for ( ; t < 1.0; ++nSampleFrame, t += flSampleRate + FLT_EPSILON )
+			local key = m_KeyFrames[nKeyIdx];
+
+			local nSampleFrame = 0;
+
+			local flCurTime = 0.0;
+			local flKeyFrameTime = key.frametime;
+
+			for ( ; flCurTime < flKeyFrameTime; flCurTime += g_FrameTime, ++nSampleFrame )
 			{
+				local t = flCurTime / flKeyFrameTime;
+
 				local org = Vector();
 				local ang = Vector();
 				_Process.SplineOrigin( nKeyIdx, t, org );
 				_Process.SplineAngles( nKeyIdx, t, ang );
-				m_PathData[ offset + nSampleFrame ].origin = org;
-				m_PathData[ offset + nSampleFrame ].angles = ang;
+
+				local frame = m_PathData[ offset + nSampleFrame ];
+				frame.origin = org;
+				frame.angles = ang;
 			}
 
-			if ( nSampleFrame != key.samplecount )
-				Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n", nSampleFrame, key.samplecount ));
+			if ( nSampleFrame != (flKeyFrameTime / g_FrameTime).tointeger() )
+				Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n",
+					nSampleFrame,
+					(key.frametime / g_FrameTime).tointeger() ));
 
 			offset += nSampleFrame;
 		}
@@ -2311,7 +2345,7 @@ class CUndoElem
 			};
 			pKeyFrames[i].transform = null;
 			pKeyFrames[i].transform = clone this[type][i];
-			pKeyFrames[i].Update();
+			pKeyFrames[i].UpdateFromMatrix();
 		}
 	}
 }
@@ -2416,12 +2450,8 @@ function CopyKeyframe()
 
 	local key = m_KeyFrames[ m_nCurKeyframe ];
 
-	local pos = Vector();
-	VS.VectorCopy( key.origin, pos );
-	pos.z -= 64.0;
-
-	player.SetOrigin( pos );
-	player.SetForwardVector( key.forward );
+	SetViewOrigin( key.origin );
+	SetViewForward( key.forward );
 
 	MsgHint(Fmt( "Copied keyframe #%d\n", m_nCurKeyframe ));
 	PlaySound(SND_BUTTON);
@@ -2470,13 +2500,11 @@ function ReplaceKeyframe()
 		SeeKeyframe( 1, 0 );
 		m_nSelectedKeyframe = curkey;
 
-		local pos = Vector();
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-		VS.VectorCopy( key.origin, pos );
-		pos.z -= 64.0;
 
-		player.SetOrigin( pos );
-		player.SetForwardVector( key.forward );
+		// HACKHACK: Set view position after the view entity is disabled to get the correct offset
+		VS.EventQueue.AddEvent( SetViewOrigin, 0.01, [this, key.origin] );
+		SetViewForward( key.forward );
 
 		MsgHint(Fmt( "Left click to replace keyframe #%d...\n", m_nCurKeyframe ));
 		PlaySound(SND_BUTTON);
@@ -2722,21 +2750,20 @@ function RemoveAllKeyframes()
 }
 
 
-const KF_INTERP_DEFAULT				= 0;;
-const KF_INTERP_CATMULL_ROM			= 1;;
-const KF_INTERP_CATMULL_ROM_NORM	= 2;;
-const KF_INTERP_CATMULL_ROM_DIR		= 3;;
-const KF_INTERP_LINEAR				= 4;;
-const KF_INTERP_LINEAR_BLEND		= 5;;
-const KF_INTERP_D3DX				= 6;;
-const KF_INTERP_BSPLINE				= 7;;
-const KF_INTERP_SIMPLE_CUBIC		= 8;;
+const KF_INTERP_CATMULL_ROM			= 0;;
+const KF_INTERP_CATMULL_ROM_NORM	= 1;;
+const KF_INTERP_CATMULL_ROM_DIR		= 2;;
+const KF_INTERP_LINEAR				= 3;;
+const KF_INTERP_LINEAR_BLEND		= 4;;
+const KF_INTERP_D3DX				= 5;;
+const KF_INTERP_BSPLINE				= 6;;
+const KF_INTERP_SIMPLE_CUBIC		= 7;;
 
-const KF_INTERP_COUNT				= 9;;
+const KF_INTERP_COUNT				= 8;;
+
 
 // origin interpolator
 local g_InterpolatorMap = array( KF_INTERP_COUNT );
-g_InterpolatorMap[ KF_INTERP_DEFAULT ]				= CONST.INTERPOLATE.CATMULL_ROM;
 g_InterpolatorMap[ KF_INTERP_CATMULL_ROM ]			= CONST.INTERPOLATE.CATMULL_ROM;
 g_InterpolatorMap[ KF_INTERP_CATMULL_ROM_NORM ]		= CONST.INTERPOLATE.CATMULL_ROM_NORMALIZE;
 g_InterpolatorMap[ KF_INTERP_LINEAR ]				= CONST.INTERPOLATE.LINEAR_INTERP;
@@ -2759,9 +2786,6 @@ function SetAngleInterp( i = null )
 	m_nInterpolatorAngle = i;
 	switch (m_nInterpolatorAngle)
 	{
-		case KF_INTERP_DEFAULT:
-			m_nInterpolatorAngle = KF_INTERP_D3DX;
-
 		case KF_INTERP_D3DX:
 			m_szInterpDescAngle = "KF_INTERP_D3DX";
 			Msg(Fmt( "angle interp: KF_INTERP_D3DX\n" ));
@@ -2781,9 +2805,6 @@ function SetAngleInterp( i = null )
 			m_szInterpDescAngle = "KF_INTERP_CATMULL_ROM_DIR";
 			Msg(Fmt( "angle interp: KF_INTERP_CATMULL_ROM_DIR\n" ));
 			break;
-
-		case KF_INTERP_COUNT:
-			return SetAngleInterp( KF_INTERP_D3DX );
 
 		default:
 			return SetAngleInterp( m_nInterpolatorAngle + 1 );
@@ -2806,9 +2827,6 @@ function SetOriginInterp( i = null )
 	m_nInterpolatorOrigin = i;
 	switch (m_nInterpolatorOrigin)
 	{
-		case KF_INTERP_DEFAULT:
-			m_nInterpolatorOrigin = KF_INTERP_CATMULL_ROM;
-
 		case KF_INTERP_CATMULL_ROM:
 			m_szInterpDescOrigin = "KF_INTERP_CATMULL_ROM";
 			Msg(Fmt( "origin interp: KF_INTERP_CATMULL_ROM\n" ));
@@ -2833,9 +2851,6 @@ function SetOriginInterp( i = null )
 			m_szInterpDescOrigin = "KF_INTERP_SIMPLE_CUBIC";
 			Msg(Fmt( "origin interp: KF_INTERP_SIMPLE_CUBIC\n" ));
 			break;
-
-		case KF_INTERP_COUNT:
-			return SetOriginInterp( KF_INTERP_CATMULL_ROM );
 
 		default:
 			return SetOriginInterp( m_nInterpolatorOrigin + 1 );
@@ -2874,6 +2889,7 @@ function SetSampleCount( nSampleCount, nKey = -1 )
 
 	if ( key.samplecount != nSampleCount )
 	{
+		key.frametime = flTime;
 		key.samplecount = nSampleCount;
 		m_bDirty = true;
 	};
@@ -2915,6 +2931,7 @@ function SetFrameTime( flTime, nKey = -1 )
 
 	if ( key.samplecount != nSampleCount )
 	{
+		key.frametime = flTime;
 		key.samplecount = nSampleCount;
 		m_bDirty = true;
 	};
@@ -2950,7 +2967,7 @@ function GetSampleCount( first, last )
 
 	local c = 0;
 	for ( ; first < last; ++first )
-		c += m_KeyFrames[first].samplecount;
+		c += (m_KeyFrames[first].frametime / g_FrameTime).tointeger();
 	return c;
 }
 
@@ -2985,11 +3002,19 @@ function Compile()
 	Msg("Preparing...\n");
 	PlaySound(SND_BUTTON);
 
-	return AddEvent( _Process.StartCompile, 0.1, _Process );
+	_Process.CreateThread( _Process.StartCompile, _Process );
+	return _Process.StartThread();
 }
 
 
 // Supports only 1 active thread at once
+// Usage:
+//	_Process.CreateThread( ThreadFunc, this );
+//	_Process.StartThread( <optional parameters> );
+//
+// Can be called inside the thread:
+//	_Process.ThreadSleep( <duration> );
+//
 {
 	_Process._thread <- null;
 
@@ -3015,7 +3040,14 @@ function Compile()
 
 	function _Process::ThreadSleep( duration ) : (suspend)
 	{
-		suspend( AddEvent( ThreadResume, duration, this ) );
+		if ( duration > 0.0 )
+		{
+			suspend( AddEvent( ThreadResume, duration, this ) );
+		}
+		else if ( duration == -1 )
+		{
+			suspend();
+		}
 	}
 
 	function _Process::ThreadResume()
@@ -3095,12 +3127,11 @@ function _Process::StartCompile()
 	Msg(Fmt( "Frame count     : %d\n", size ));
 	Msg(Fmt( "Angle interp    : %s\n", m_szInterpDescAngle ));
 	Msg(Fmt( "Origin interp   : %s\n", m_szInterpDescOrigin ));
-	Msg(Fmt( "Fill boundaries : %d\n\n", m_bAutoFillBoundaries.tointeger() ));
+	Msg(Fmt( "Fill boundaries : %d\n", m_bAutoFillBoundaries.tointeger() ));
 
-	Msg("Compiling");
+	Msg("\nCompiling");
 
-	CreateThread( CompilePath );
-	return StartThread();
+	return CompilePath();
 }
 
 function _Process::SplineOrigin( i, frac, out ) : ( g_InterpolatorMap )
@@ -3199,21 +3230,30 @@ function _Process::CompilePath()
 	for ( local nKeyIdx = 1; nKeyIdx <= len; ++nKeyIdx )
 	{
 		local key = m_KeyFrames[nKeyIdx];
-		local flSampleRate = 1.0 / key.samplecount;
-		local nSampleFrame = 0, t = 0.0;
 
-		for ( ; t < 1.0; ++nSampleFrame, t += flSampleRate + FLT_EPSILON )
+		local nSampleFrame = 0;
+
+		local flCurTime = 0.0;
+		local flKeyFrameTime = key.frametime;
+
+		for ( ; flCurTime < flKeyFrameTime; flCurTime += g_FrameTime, ++nSampleFrame )
 		{
+			local t = flCurTime / flKeyFrameTime;
+
 			local org = Vector();
 			local ang = Vector();
 			SplineOrigin( nKeyIdx, t, org );
 			SplineAngles( nKeyIdx, t, ang );
-			m_PathData[ offset + nSampleFrame ].origin = org;
-			m_PathData[ offset + nSampleFrame ].angles = ang;
+
+			local frame = m_PathData[ offset + nSampleFrame ];
+			frame.origin = org;
+			frame.angles = ang;
 		}
 
-		if ( nSampleFrame != key.samplecount )
-			Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n", nSampleFrame, key.samplecount ));
+		if ( nSampleFrame != (flKeyFrameTime / g_FrameTime).tointeger() )
+			Msg(Fmt( "\nERROR: Compiled frame count does not match keyframe sample count value! %d, %d\n",
+				nSampleFrame,
+				(key.frametime / g_FrameTime).tointeger() ));
 
 		offset += nSampleFrame;
 
@@ -3232,6 +3272,7 @@ function _Process::CompilePath()
 		Msg("|");
 		// smooth twice?
 		SmoothAngles( 10 );
+		ThreadSleep( g_FrameTime );
 		SmoothAngles( 10 );
 	};
 
@@ -3239,7 +3280,7 @@ function _Process::CompilePath()
 
 	ThreadSleep( g_FrameTime );
 
-	FinishCompile();
+	return FinishCompile();
 }
 
 function _Process::FinishCompile()
@@ -3251,7 +3292,7 @@ function _Process::FinishCompile()
 	local c = m_PathData.len();
 	for ( local i = 0; i < c; i++ )
 	{
-		if ( !m_PathData[i] )
+		if ( !m_PathData[i] || !m_PathData[i].origin )
 		{
 			Msg("\nNULL POINT! ["+i+" / "+c+"]\n");
 			m_PathData.resize( i-1 );
@@ -3575,7 +3616,7 @@ function TransformKeyframes( pivot, vecOffset, vecAngle ) : (array, vec3_origin)
 		VS.MatrixGetColumn( key.transform, 3, key.origin );
 		VS.MatrixSetColumn( key.origin + vecPivot + vecOffset, 3, key.transform );
 
-		key.Update();
+		key.UpdateFromMatrix();
 	}
 
 	PushRedo( "transform" );
@@ -4129,9 +4170,9 @@ function _Load::LoadInternal() : ( NewFrame )
 		_Process.ThreadSleep( g_FrameTime );
 
 		return LoadFinishInternal();
-	}
+	};
 
-	else if ( m_nLoadVer == KF_SAVE_V1 )
+	if ( m_nLoadVer == KF_SAVE_V1 )
 	{
 		local rotGet, rotSet;
 
@@ -4185,11 +4226,9 @@ function _Load::LoadInternal() : ( NewFrame )
 		_Process.ThreadSleep( g_FrameTime );
 
 		return LoadFinishInternal();
-	}
-	else
-	{
-		Assert(0, "V");
-	};;
+	};
+
+	Assert( 0, "LoadInternal()" );
 }
 
 function LoadFinishInternal()
@@ -4613,6 +4652,7 @@ function UndoTrim()
 	PlaySound(SND_BUTTON);
 }
 
+
 CompileFOV <- _Process.CompileFOV.bindenv(_Process);
 
 // global bindings for easy use with 'script kf_XX()'
@@ -4649,6 +4689,12 @@ function PostSpawn()
 		CameraSetEnabled( false );
 	};
 
+	if ( m_nInterpolatorAngle == null )
+	{
+		m_nInterpolatorAngle = KF_INTERP_D3DX;
+		m_nInterpolatorOrigin = KF_INTERP_CATMULL_ROM;
+	};
+
 	ListenMouse(1);
 	SetAngleInterp( m_nInterpolatorAngle );
 	SetOriginInterp( m_nInterpolatorOrigin );
@@ -4662,6 +4708,7 @@ function PostSpawn()
 	}
 	else
 	{
+		SendToConsole("clear");
 		WelcomeMsg();
 	};
 

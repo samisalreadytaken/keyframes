@@ -3,6 +3,9 @@
 
 --------------------------------
 
+2022-06-12 [v1.2.10]
+- Fixed camera and view precision errors
+
 2022-05-19 [v1.2.9]
 - Reduced compile time (-50%)
 - Reduced save/load time
@@ -15,7 +18,7 @@
 
 2022-05-14 [v1.2.8]
 - Fixed (default) D3DX angle interpolator
-- Changed 3D translation manipulator centre gizmo move the keyframe in spherical coordinates instead of locked-in plane
+- Changed 3D translation manipulator centre gizmo to move the keyframe in spherical coordinates instead of locked-in plane
 - Changed 3D translation manipulator camera rotation pivot point to cursor position instead of resetting it to the key origin
 - Changed camera rotation pivot point to world while not looking towards a keyframe
 - Fixed keyframe selection changing while looking too far away

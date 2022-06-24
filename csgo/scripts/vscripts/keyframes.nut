@@ -1558,13 +1558,14 @@ function AnimThink()
 			else if ( m_bSeeing )
 			{
 				local mat = VMatrix();
-				VS.ScreenToWorldMatrix(
+				VS.WorldToScreenMatrix(
 					mat,
 					key.origin,
 					key.forward,
 					key.right,
 					key.up,
 					key._fovx, 1.77778, 4.0, 1024.0 );
+				VS.MatrixInverseGeneral( mat, mat );
 
 				local worldPos = VS.ScreenToWorld( 0.65, 0.35, mat );
 
@@ -1587,13 +1588,14 @@ function FrameThink()
 	if ( m_bReplaceOnClick || m_bInsertOnClick )
 	{
 		local mat = VMatrix();
-		VS.ScreenToWorldMatrix(
+		VS.WorldToScreenMatrix(
 			mat,
 			MainViewOrigin(),
 			MainViewForward(),
 			MainViewRight(),
 			MainViewUp(),
 			106.26, 1.77778, 1.0, 16.0 );
+		VS.MatrixInverseGeneral( mat, mat );
 
 		local worldPos = VS.ScreenToWorld( 0.5, 0.63, mat );
 		local angles = MainViewAngles();

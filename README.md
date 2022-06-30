@@ -5,7 +5,7 @@ Quick smooth camera path creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.10-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.2.11-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
 
 
@@ -29,7 +29,7 @@ Use the console commands to load and control the script. It needs to be loaded e
 
 See the _Default Key Binds_ section below for the keys that are available for you to use by default. These do not modify your settings. Optionally, bind your other keys to improve your workflow. You can find some examples at the bottom of the [keyframes.cfg](csgo/cfg/keyframes.cfg) file.
 
-Before uncommenting the key binds in the config file, make sure you have a backup of your own binds that would be modified.
+Before enabling these key binds in the config file, make sure you have a backup of your own binds that would be modified. To revert any changes, you may use a different cfg file for convenience.
 
 Command                | Description
 ---------------------- | -------------------
@@ -42,9 +42,9 @@ Command                | Description
 `kf_insert`            | Insert new keyframe before the selected keyframe
 `kf_replace`           | Replace the current keyframe
 `kf_copy`              | Set player pos/ang to the current keyframe
-`kf_undo`              | Undo last keyframe modify action
-`kf_redo`              | Redo
-`kf_undo_history`      | Show undo history
+`kf_undo`              | Undo last action
+`kf_redo`              | Redo last action
+`kf_undo_history`      | Show action history
 ---                    | ---
 `kf_compile`           | Compile the keyframe data
 `kf_smooth_angles`     | Smooth compiled path angles
@@ -127,11 +127,23 @@ Modifying any keyframe requires compilation before seeing the changes in playbac
 
 You may also select a portion of the compiled path with `kf_select_path` to playback while fine tuning your path. Use MOUSE1/MOUSE2 to select/cancel the selection. Use `kf_play_loop` to loop the playback.
 
-`kf_transform( int index, Vector offset, Vector rotation )`: index is the index of a keyframe to pivot the transform. If index is -1, average position of all keyframes is used as pivot point; if index is -2, current camera position (player) is used as pivot point.
+All keyframes can be rotated and offset at once using `kf_transform()`.
 
-Example: `script kf_transform( 2, null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees horizontally (yaw) around keyframe 2.
+```
+kf_transform( Vector offset )
+kf_transform( Vector|null offset, Vector angles )
+kf_transform( int pivot, Vector offset, Vector angles )
+```
 
-Example: `script kf_transform( 0, Vector(0, 0, 64), null )` moves all keyframes 64 units vertically.
+`pivot` is the index of a keyframe to pivot the transform. If index is -1, average position of all keyframes is used as pivot point; if index is -2, current camera position (player) is used as pivot point.
+
+Examples:
+
+`script kf_transform( Vector(0, 0, 64) )` moves all keyframes 64 units vertically.
+
+`script kf_transform( null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees around Z axis (yaw).
+
+`script kf_transform( 4, null, Vector(0, 90, 0) )` rotates all keyframes 90 degrees around Z axis (yaw) pivoted on keyframe 4.
 
 ![](../assets/gizmo1.gif)
 

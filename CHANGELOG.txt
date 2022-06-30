@@ -3,6 +3,17 @@
 
 --------------------------------
 
+2022-06-30 [v1.2.11]
+- Added ability to insert keyframes while seeing (kf_see > kf_insert)
+- Pressing kf_select_path/kf_insert/kf_replace now toggle the modes instead of doing their actions
+- Fixed path traveller while in path selection
+- Added ability to use translation manipulator while insert/replace/select_path modes are active
+- Changed 3D translation manipulator size to be constant on screen
+- Added undo states for all actions that modify keyframes
+- Increased undo stack depth to 256
+- Various bug fixes
+- Fixed potential game crashes
+
 2022-06-12 [v1.2.10]
 - Fixed camera and view precision errors
 

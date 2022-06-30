@@ -2,7 +2,7 @@
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
 //-----------------------------------------------------------------------
-local VERSION = "1.2.10";
+local VERSION = "1.2.11";
 
 IncludeScript("vs_library");
 
@@ -61,6 +61,9 @@ SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
 
 SendToConsole("script _KF_.PostSpawn()");
 
+// prevent OOB access `closure->_defaultparams[(uint32)-1]`
+const KF_NOPARAM = 0xfffffac7;
+
 
 const FLT_EPSILON = 1.192092896e-7;
 const KF_SAMPLE_COUNT_DEFAULT = 100;
@@ -108,13 +111,15 @@ if ( !("_Process" in this) )
 	m_pSaveData <- null;
 	m_pLoadData <- null;
 	m_pLoadInput <- null;
+	m_pUndoLoad <- null;
+	m_pUndoTranslation <- null;
 
 	m_nSaveType <- 0;
 	m_nLoadType <- 0;
 	m_nLoadVer <- 0;
 	m_bSaveInProgress <- false;
 
-	m_LoadedDatas <- {}
+	m_LoadedData <- {}
 	m_FileBuffer <-
 	{
 		// for b/w compat
@@ -124,6 +129,7 @@ if ( !("_Process" in this) )
 
 	m_UndoStack <- [];
 	m_nUndoLevel <- 0;
+	m_nMaxUndoDepth <- 256;
 
 	m_bDirty <- false;
 	m_bCompiling <- false;
@@ -181,12 +187,12 @@ if ( !("_Process" in this) )
 
 	in_moveup <- false;
 	in_movedown <- false;
+	in_forward <- false;
+	in_back <- false;
+	in_moveleft <- false;
+	in_moveright <- false;
 
-	in_roll_1 <- false;
-	in_roll_0 <- false;
-	in_fov_1 <- false;
-	in_fov_0 <- false;
-	m_iFOV <- 90;
+	m_iLastFOV <- 90;
 	m_vecRollLastAngle <- null;
 
 	m_nAnimKeyframeTime <- 0.0;
@@ -220,7 +226,7 @@ if ( !("m_hThinkCam" in this) )
 	m_hThinkEdit <- VS.Timer( true, s_flDisplayTime-FrameTime(), null, null, false, true ).weakref();
 	m_hThinkAnim <- VS.Timer( true, 0.5-FrameTime(), null, null, false, true ).weakref();
 	m_hThinkKeys <- VS.Timer( true, FrameTime()*2.5, null, null, false, true ).weakref();
-	m_hThinkFrame <- null;
+	m_hThinkFrame <- VS.Timer( true, FrameTime(), null, null, false, true ).weakref();
 
 	m_hGameText <- VS.CreateEntity("game_text",
 	{
@@ -408,8 +414,18 @@ function SetViewForward( vec )
 function MainViewOrigin()
 {
 	// CSGO view render origin is offset from the eye position (origin+viewoffset)
-	local viewOrigin = player.EyePosition();
-	viewOrigin.z += 0.062561;
+	// Using GetAbsOrigin instead of EyePosition to reliably get the actual player position while in-camera view.
+	local viewOrigin = player.GetOrigin();
+
+	if ( IsDucking() )
+	{
+		viewOrigin.z += 46.062561;
+	}
+	else
+	{
+		viewOrigin.z += 64.062561;
+	}
+
 	return viewOrigin;
 }
 
@@ -576,15 +592,15 @@ class keyframe_t //extends frame_t
 
 	function SetFov( val, rate = null )
 	{
-		if ( !val )
-		{
-			fov = null;
-			_fovx = VS.CalcFovX( 90.0, 16./9. * 0.75 );
-		}
-		else
+		if ( val )
 		{
 			fov = val.tointeger();
 			_fovx = VS.CalcFovX( fov.tofloat(), 16./9. * 0.75 );
+		}
+		else
+		{
+			fov = null;
+			_fovx = VS.CalcFovX( 90.0, 16./9. * 0.75 );
 		};
 	}
 
@@ -624,6 +640,24 @@ class keyframe_t //extends frame_t
 		Init();
 		Copy(src);
 	}
+}
+
+class CUndoElement
+{
+	constructor( szDesc = "<unknown>" )
+	{
+		m_szDesc = szDesc;
+	}
+
+	function Undo() { Assert(0) }
+	function Redo() { Assert(0) }
+	function Desc() { return m_szDesc }
+
+	function CanRedo() { return true; }
+
+	m_szDesc = "";
+	Fmt = Fmt;
+	Base = this;
 }
 
 
@@ -705,10 +739,10 @@ player.SetInputCallback( "+use", function(...)
 	SeeKeyframe(0,1);
 
 	EntFireByHandle( m_hThinkKeys, "Disable" );
-	in_fov_1 = false;
-	in_fov_0 = false;
-	in_roll_1 = false;
-	in_roll_0 = false;
+	in_forward = false;
+	in_back = false;
+	in_moveleft = false;
+	in_moveright = false;
 }.bindenv(this), KF_CB_CONTEXT );
 
 //--------------------------------------------------------------
@@ -716,13 +750,13 @@ player.SetInputCallback( "+use", function(...)
 // Think keys roll
 function IN_ThinkRoll()
 {
-	if ( in_roll_1 )
+	if ( in_moveleft )
 	{
 		m_vecRollLastAngle.z = clamp( floor( m_vecRollLastAngle.z + 2.0 ), -180.0, 180.0 );
 		CameraSetAngles( m_vecRollLastAngle );
 		Hint( "Roll "+m_vecRollLastAngle.z );
 	}
-	else if ( in_roll_0 )
+	else if ( in_moveright )
 	{
 		m_vecRollLastAngle.z = clamp( floor( m_vecRollLastAngle.z - 2.0 ), -180.0, 180.0 );
 		CameraSetAngles( m_vecRollLastAngle );
@@ -732,22 +766,22 @@ function IN_ThinkRoll()
 	PlaySound( SND_TICKER );
 }
 
-local fFovRate = FrameTime()*6;
-
 // Think keys fov
-function IN_ThinkFOV() : (fFovRate)
+function IN_ThinkFOV()
 {
-	if ( in_fov_1 )
+	local fFovRate = FrameTime()*6;
+
+	if ( in_forward )
 	{
-		m_iFOV = clamp( m_iFOV - 1, 1, 179 );
-		Hint( "FOV "+m_iFOV );
-		CameraSetFov( m_iFOV, fFovRate );
+		m_iLastFOV = clamp( m_iLastFOV - 1, 1, 179 );
+		Hint( "FOV "+m_iLastFOV );
+		CameraSetFov( m_iLastFOV, fFovRate );
 	}
-	else if ( in_fov_0 )
+	else if ( in_back )
 	{
-		m_iFOV = clamp( m_iFOV + 1, 1, 179 );
-		Hint( "FOV "+m_iFOV );
-		CameraSetFov( m_iFOV, fFovRate );
+		m_iLastFOV = clamp( m_iLastFOV + 1, 1, 179 );
+		Hint( "FOV "+m_iLastFOV );
+		CameraSetFov( m_iLastFOV, fFovRate );
 	};;
 
 	PlaySound( SND_TICKER );
@@ -761,8 +795,8 @@ function IN_ROLL_1(i)
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		in_roll_1 = true;
-		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles;
+		in_moveleft = true;
+		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles * 1;
 
 		VS.OnTimer( m_hThinkKeys, IN_ThinkRoll );
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -772,15 +806,17 @@ function IN_ROLL_1(i)
 		if ( !m_bSeeing )
 			return;
 
-		in_roll_1 = false;
+		in_moveleft = false;
 		EntFireByHandle( m_hThinkKeys, "Disable" );
 
-		PushUndo( "roll" );
+		local pUndo = CUndoKeyframeRoll();
+		PushUndo( pUndo );
+		pUndo.m_nKeyIndex = m_nCurKeyframe;
+		pUndo.m_vecAnglesOld = m_KeyFrames[ m_nCurKeyframe ].angles * 1;
+		pUndo.m_vecAnglesNew = m_vecRollLastAngle * 1;
 
 		// save last set data
 		m_KeyFrames[ m_nCurKeyframe ].SetAngles( m_vecRollLastAngle );
-
-		PushRedo( "roll" );
 
 		m_bDirty = true;
 	};
@@ -794,8 +830,8 @@ function IN_ROLL_0(i)
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		in_roll_0 = true;
-		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles;
+		in_moveright = true;
+		m_vecRollLastAngle = m_KeyFrames[ m_nCurKeyframe ].angles * 1;
 
 		VS.OnTimer( m_hThinkKeys, IN_ThinkRoll );
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -805,15 +841,17 @@ function IN_ROLL_0(i)
 		if ( !m_bSeeing )
 			return;
 
-		in_roll_0 = false;
+		in_moveright = false;
 		EntFireByHandle( m_hThinkKeys, "Disable" );
 
-		PushUndo( "roll" );
+		local pUndo = CUndoKeyframeRoll();
+		PushUndo( pUndo );
+		pUndo.m_nKeyIndex = m_nCurKeyframe;
+		pUndo.m_vecAnglesOld = m_KeyFrames[ m_nCurKeyframe ].angles * 1;
+		pUndo.m_vecAnglesNew = m_vecRollLastAngle * 1;
 
 		// save last set data
 		m_KeyFrames[ m_nCurKeyframe ].SetAngles( m_vecRollLastAngle );
-
-		PushRedo( "roll" );
 
 		m_bDirty = true;
 	};
@@ -827,8 +865,8 @@ function IN_FOV_1(i)
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		in_fov_1 = true;
-		m_iFOV = 90;
+		in_forward = true;
+		m_iLastFOV = 90;
 
 		VS.OnTimer( m_hThinkKeys, IN_ThinkFOV );
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -837,7 +875,7 @@ function IN_FOV_1(i)
 		if ( key.fov )
 		{
 			// get current fov value
-			m_iFOV = key.fov;
+			m_iLastFOV = key.fov;
 		};
 	}
 	else
@@ -845,11 +883,18 @@ function IN_FOV_1(i)
 		if ( !m_bSeeing )
 			return;
 
-		in_fov_1 = false;
+		in_forward = false;
 		EntFireByHandle( m_hThinkKeys, "Disable" );
 
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-		key.SetFov( m_iFOV );
+
+		local pUndo = CUndoKeyframeFOV();
+		PushUndo( pUndo );
+		pUndo.m_nKeyIndex = m_nCurKeyframe;
+		pUndo.m_nFovOld = key.fov ? key.fov : 90;
+		pUndo.m_nFovNew = m_iLastFOV;
+
+		key.SetFov( m_iLastFOV );
 
 		m_bDirty = true;
 	};
@@ -863,8 +908,8 @@ function IN_FOV_0(i)
 		if ( !m_bSeeing )
 			return MsgFail("You need to be in see mode to use the key controls.\n");
 
-		in_fov_0 = true;
-		m_iFOV = 90;
+		in_back = true;
+		m_iLastFOV = 90;
 
 		VS.OnTimer( m_hThinkKeys, IN_ThinkFOV );
 		EntFireByHandle( m_hThinkKeys, "Enable" );
@@ -873,7 +918,7 @@ function IN_FOV_0(i)
 		if ( key.fov )
 		{
 			// get current fov value
-			m_iFOV = key.fov;
+			m_iLastFOV = key.fov;
 		};
 	}
 	else
@@ -881,11 +926,18 @@ function IN_FOV_0(i)
 		if ( !m_bSeeing )
 			return;
 
-		in_fov_0 = false;
+		in_back = false;
 		EntFireByHandle( m_hThinkKeys, "Disable" );
 
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-		key.SetFov( m_iFOV );
+
+		local pUndo = CUndoKeyframeFOV();
+		PushUndo( pUndo );
+		pUndo.m_nKeyIndex = m_nCurKeyframe;
+		pUndo.m_nFovOld = key.fov ? key.fov : 90;
+		pUndo.m_nFovNew = m_iLastFOV;
+
+		key.SetFov( m_iLastFOV );
 
 		m_bDirty = true;
 	};
@@ -947,34 +999,35 @@ function IN_Move(i)
 
 OnMouse1Pressed <- function(...)
 {
-	if ( m_bReplaceOnClick )
-	{
-		ReplaceKeyframe();
-		ToggleFrameThink( false );
-		return;
-	};
-
-	if ( m_bInsertOnClick )
-	{
-		InsertKeyframe();
-		ToggleFrameThink( false );
-		return;
-	};
-
-	if ( m_fPathSelection != 0 )
-		return SelectPath();
-
 	if ( m_bSeeing )
 		return NextKeyframe();
 
 	if ( m_bGizmoEnabled )
 		return GizmoOnMouseDown();
 
+	if ( m_bReplaceOnClick )
+	{
+		ReplaceKeyframe(1);
+		return;
+	};
+
+	if ( m_bInsertOnClick )
+	{
+		InsertKeyframe(1);
+		return;
+	};
+
+	if ( m_fPathSelection != 0 )
+		return SelectPath(1);
+
 	return AddKeyframe();
 }.bindenv(this);
 
 OnMouse1Released <- function(...)
 {
+	if ( m_bSeeing )
+		return;
+
 	if ( m_bGizmoEnabled )
 		return GizmoOnMouseRelease();
 }.bindenv(this);
@@ -985,9 +1038,10 @@ OnMouse2Pressed <- function(...)
 	{
 		m_bReplaceOnClick = false;
 		m_bInsertOnClick = false;
-		ToggleFrameThink( false );
 		m_nSelectedKeyframe = -1;
+
 		MsgHint("Cancelled\n");
+		PlaySound( SND_BUTTON );
 		return;
 	};
 
@@ -996,6 +1050,7 @@ OnMouse2Pressed <- function(...)
 		m_Selection[0] = m_Selection[1] = 0;
 		m_fPathSelection = 0;
 		MsgHint( "Cleared path selection.\n" );
+		PlaySound( SND_BUTTON );
 		return;
 	};
 
@@ -1028,7 +1083,7 @@ function ShowToggle(t)
 	};
 
 	SendToConsole("clear_debug_overlays");
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 // kf_edit
@@ -1055,6 +1110,7 @@ function SetEditMode( state = null, msg = true )
 		SetHelperVisible( true );
 		EntFireByHandle( m_hThinkEdit, "Enable" );
 		EntFireByHandle( m_hThinkAnim, "Enable" );
+		EntFireByHandle( m_hThinkFrame, "Enable" );
 
 		if (msg)
 			Msg("Edit mode enabled.\n");
@@ -1069,6 +1125,7 @@ function SetEditMode( state = null, msg = true )
 		SetHelperVisible( false );
 		EntFireByHandle( m_hThinkEdit, "Disable" );
 		EntFireByHandle( m_hThinkAnim, "Disable" );
+		EntFireByHandle( m_hThinkFrame, "Disable" );
 		EntFireByHandle( m_hGameText2, "SetText", "" );
 		EntFireByHandle( m_hGameText3, "SetText", "" );
 
@@ -1079,7 +1136,7 @@ function SetEditMode( state = null, msg = true )
 	SendToConsole("clear_debug_overlays");
 
 	if (msg)
-		PlaySound(SND_BUTTON);
+		PlaySound( SND_BUTTON );
 }
 
 function SetEditModeTemp( state )
@@ -1088,16 +1145,18 @@ function SetEditModeTemp( state )
 	{
 		m_hThinkEdit.__KeyValueFromFloat( "nextthink", 1 );
 		m_hThinkAnim.__KeyValueFromFloat( "nextthink", 1 );
+		m_hThinkFrame.__KeyValueFromFloat( "nextthink", 1 );
 	}
 	else
 	{
 		m_hThinkEdit.__KeyValueFromFloat( "nextthink", -1 );
 		m_hThinkAnim.__KeyValueFromFloat( "nextthink", -1 );
+		m_hThinkFrame.__KeyValueFromFloat( "nextthink", -1 );
 	}
 }
 
 // kf_select_path
-function SelectPath()
+function SelectPath( bClick = 0 )
 {
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to select.\n");
@@ -1105,14 +1164,28 @@ function SelectPath()
 	if ( !m_PathData.len() )
 		return MsgFail("No path to select.\n");
 
-	if ( m_fPathSelection == 0 )
+	if ( !bClick )
 	{
-		MsgHint( "Select path begin...\n" );
-		m_fPathSelection = 1;
-	}
-	else if ( m_fPathSelection == 1 )
+		if ( m_fPathSelection == 0 )
+		{
+			m_fPathSelection = 1;
+			MsgHint( "Select path begin...\n" );
+		}
+		else
+		{
+			m_fPathSelection = 0;
+			MsgHint( "Cancelled\n" );
+		};
+
+		PlaySound( SND_BUTTON );
+
+		return;
+	};
+
+	if ( m_fPathSelection == 1 )
 	{
 		m_Selection[0] = m_nCurPathSelection;
+		m_nAnimPathIdx = 0;
 
 		Msg(Fmt( " [%d ->\n", m_Selection[0] ));
 
@@ -1122,6 +1195,7 @@ function SelectPath()
 	else if ( m_fPathSelection == 2 )
 	{
 		m_Selection[1] = m_nCurPathSelection;
+		m_nAnimPathIdx = 0;
 
 		// normalise
 		if ( m_Selection[0] > m_Selection[1] )
@@ -1149,9 +1223,9 @@ function SelectPath()
 		MsgHint( "Selected path" );
 		Msg(Fmt( " [%d -> %d]\n", m_Selection[0], m_Selection[1] ));
 		m_fPathSelection = 0;
-	};;;
+	};;
 
-	PlaySound(SND_BUTTON)
+	PlaySound( SND_BUTTON );
 }
 
 // kf_select
@@ -1180,7 +1254,7 @@ function SelectKeyframe( bShowMsg = 1 )
 		m_nSelectedKeyframe = -1;
 	};
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 // kf_next
@@ -1190,7 +1264,7 @@ function NextKeyframe()
 		return MsgFail("You need to have a keyframe selected to use kf_next.\n");
 
 	local t = (m_nSelectedKeyframe+1) % m_KeyFrames.len();
-	local b = m_bSeeing;		// hold current value
+	local b = m_bSeeing;		// hold current state
 
 	// unsee silently
 	if (b) SeeKeyframe(1,0);
@@ -1214,7 +1288,7 @@ function PrevKeyframe()
 		n += m_KeyFrames.len();
 
 	local t = n % m_KeyFrames.len();
-	local b = m_bSeeing;		// hold current value
+	local b = m_bSeeing;		// hold current state
 
 	// unsee silently
 	if (b) SeeKeyframe(1,0);
@@ -1303,7 +1377,7 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 ) : (vec3_origin)
 		};
 	};
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 
@@ -1478,7 +1552,17 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 			if ( bounds )
 			{
 				res = 2;
-				len = m_Selection[1] - m_Selection[0];
+
+				if ( m_Selection[1] )
+				{
+					len = m_Selection[1] - m_Selection[0];
+				}
+				else
+				{
+					// in process of choosing the second point
+					len = len - m_Selection[0];
+				}
+
 				offset = m_Selection[0];
 			};
 
@@ -1509,6 +1593,10 @@ function EditModeThink() : ( s_flDisplayTime, s_vecMins )
 
 				do
 				{
+					// This key might be out of the existing path range
+					if ( !(i in m_PathData) )
+						break;
+
 					local dir = m_PathData[i].origin - viewOrigin;
 					dir.Norm();
 					local dot = viewForward.Dot( dir );
@@ -1664,28 +1752,6 @@ function KeyframeLerp( in1, in2, frac )
 }
 
 
-function ToggleFrameThink( b )
-{
-	if ( !m_hThinkFrame )
-	{
-		m_hThinkFrame = VS.Timer( true, FrameTime(), null, null, false, true ).weakref();
-		VS.OnTimer( m_hThinkFrame, FrameThink, this );
-	};
-
-	if ( b )
-	{
-		EntFireByHandle( m_hThinkFrame, "Enable" );
-	}
-	else
-	{
-		if ( !m_bInsertOnClick && !m_bReplaceOnClick && !m_pLerpFrustum && !m_pLerpTransform && !m_bGizmoEnabled )
-		{
-			EntFireByHandle( m_hThinkFrame, "Disable" );
-		}
-	}
-}
-
-
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 
@@ -1708,9 +1774,57 @@ function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRect
 	if ( s != vRectMax.z )
 	{
 		vRectMin.y = vRectMin.z = -s;
-		vRectMax.y = vRectMax.z =  s;
+		vRectMax.y = vRectMax.z = s;
 	};
-	return DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r,g,b,a, t );
+	return DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
+}
+
+function DrawRectOutlined( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRectMax )
+{
+	local thickness = s * 0.25;
+	local gap = s - thickness * 2.;
+
+	vRectMin.x = vRectMax.x = 0.0;
+
+	// left
+	vRectMin.y = gap;		vRectMax.y = s;
+	vRectMin.z = -s;		vRectMax.z = s;
+	DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
+
+	// right
+	vRectMin.y = -gap;		vRectMax.y = -s;
+	vRectMin.z = -s;		vRectMax.z = s;
+	DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
+
+	// bottom
+	vRectMin.y = gap;		vRectMax.y = -s + gap;
+	vRectMin.z = -s;		vRectMax.z = -gap;
+	DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
+
+	// top
+	vRectMin.y = -gap;		vRectMax.y = gap;
+	vRectMin.z = gap;		vRectMax.z = s;
+	DrawBoxAnglesFilled( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
+}
+
+function DrawCircle( pos, radius, r, g, b, z, t, viewUp, viewRight )
+{
+	local segment = 12;
+	local step = PI * 2.0 / segment;
+
+	local vecStart = pos + viewUp * radius;
+	local vecPos = vecStart;
+
+	while ( segment-- )
+	{
+		local s = sin( step * segment ) * radius;
+		local c = cos( step * segment ) * radius;
+
+		local vecLastPos = vecPos;
+		vecPos = pos + viewUp * c + viewRight * s;
+
+		DrawLine( vecLastPos, vecPos, r, g, b, z, t );
+	}
 }
 
 function DrawGrid( pos, up, right, time )
@@ -1757,8 +1871,18 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 	local vecCursor;
 	local nCursorG = 255, nCursorB = 255;
 
+	local deltaOrigin = viewOrigin - key.origin;
+	local flScale = deltaOrigin.Length() / 450.0;
+	if ( flScale < 1.0 )
+		flScale = 1.0;
+
 	if ( !IsDucking() )
 	{
+		local flScaleX1 = 32.0 * flScale; // box length
+		local flScaleX2 = 2.0 * flScale; // box thickness
+		local flScaleXY1 = 11.0 * flScale; // plane distance
+		local flScaleXY2 = 20.0 * flScale; // plane size
+
 		// stopped ducking
 		if ( m_vecCameraOffset )
 		{
@@ -1780,10 +1904,9 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 		{
 			key.DrawFrustum( 255, 200, 255, -1 );
 
-			local deltaOrigin = viewOrigin - key.origin;
 			local t;
 
-			local rayDelta = viewForward * 2048.0;
+			local rayDelta = viewForward * MAX_TRACE_LENGTH;
 			local nSelection;
 
 			// Screen plane translation
@@ -1801,7 +1924,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 			// Local camera axes looking down +z
 
 			// test Z
-			vAxisMax.x = vAxisMax.y = 1.0; vAxisMax.z = 32.0;
+			vAxisMax.x = vAxisMax.y = flScaleX2; vAxisMax.z = flScaleX1;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
 			{
@@ -1816,7 +1939,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// test X
-			vAxisMax.z = vAxisMax.y = 1.0; vAxisMax.x = 32.0;
+			vAxisMax.z = vAxisMax.y = flScaleX2; vAxisMax.x = flScaleX1;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
 			{
@@ -1831,7 +1954,7 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// test Y
-			vAxisMax.x = vAxisMax.z = 1.0; vAxisMax.y = 32.0;
+			vAxisMax.x = vAxisMax.z = flScaleX2; vAxisMax.y = flScaleX1;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vAxisMin, key.origin + vAxisMax, viewOrigin, rayDelta ) )
 			{
@@ -1846,8 +1969,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// test XY
-			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = 11.0;
-			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = 20.0;
+			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = flScaleXY1;
+			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = flScaleXY2;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
 			{
@@ -1862,8 +1985,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// test YZ
-			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = 11.0;
-			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = 20.0;
+			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = flScaleXY1;
+			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = flScaleXY2;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
 			{
@@ -1878,8 +2001,8 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// test XZ
-			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = 11.0;
-			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = 20.0;
+			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = flScaleXY1;
+			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = flScaleXY2;
 
 			if ( !nSelection && VS.IsBoxIntersectingRay( key.origin + vPlaneMin, key.origin + vPlaneMax, viewOrigin, rayDelta ) )
 			{
@@ -1953,12 +2076,12 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// Z
-			vAxisMax.x = vAxisMax.y = 1.0; vAxisMax.z = 32.0;
+			vAxisMax.x = vAxisMax.y = flScaleX2; vAxisMax.z = flScaleX1;
 
 			if ( nSelection == 2 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -1975,12 +2098,12 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// X
-			vAxisMax.z = vAxisMax.y = 1.0; vAxisMax.x = 32.0;
+			vAxisMax.z = vAxisMax.y = flScaleX2; vAxisMax.x = flScaleX1;
 
 			if ( nSelection == 3 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -1997,12 +2120,12 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// Y
-			vAxisMax.x = vAxisMax.z = 1.0; vAxisMax.y = 32.0;
+			vAxisMax.x = vAxisMax.z = flScaleX2; vAxisMax.y = flScaleX1;
 
 			if ( nSelection == 4 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -2019,13 +2142,13 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// XY
-			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = 11.0;
-			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = 20.0;
+			vPlaneMin.z = 0.0; vPlaneMin.x = vPlaneMin.y = flScaleXY1;
+			vPlaneMax.z = 0.0; vPlaneMax.x = vPlaneMax.y = flScaleXY2;
 
 			if ( nSelection == 5 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v001, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -2043,13 +2166,13 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// YZ
-			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = 11.0;
-			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = 20.0;
+			vPlaneMin.x = 0.0; vPlaneMin.y = vPlaneMin.z = flScaleXY1;
+			vPlaneMax.x = 0.0; vPlaneMax.y = vPlaneMax.z = flScaleXY2;
 
 			if ( nSelection == 6 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v100, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -2067,13 +2190,13 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 
 
 			// XZ
-			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = 11.0;
-			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = 20.0;
+			vPlaneMin.y = 0.0; vPlaneMin.x = vPlaneMin.z = flScaleXY1;
+			vPlaneMax.y = 0.0; vPlaneMax.x = vPlaneMax.z = flScaleXY2;
 
 			if ( nSelection == 7 )
 			{
 				local t = VS.IntersectRayWithPlane( m_vecLastDeltaOrigin, viewForward, g_v010, 0.0 );
-				t = clamp( t, 0.0, 1024.0 );
+				t = clamp( t, 0.0, 4096.0 );
 
 				vecCursor = m_vecLastOrigin + viewForward * t;
 
@@ -2187,19 +2310,53 @@ function ManipulatorThink( key, viewOrigin, viewForward, viewAngles )
 	};;
 
 	// draw cursor
-	DrawRectFilled( vecCursor, 2, 255, nCursorG, nCursorB, 255, -1, viewAngles );
+	DrawRectFilled( vecCursor, 2 * flScale, 255, nCursorG, nCursorB, 255, -1, viewAngles );
+}
+
+
+
+class CUndoTranslation extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].transform = clone m_xformOld;
+		Base.m_KeyFrames[ m_nKeyIndex ].UpdateFromMatrix();
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].transform = clone m_xformNew;
+		Base.m_KeyFrames[ m_nKeyIndex ].UpdateFromMatrix();
+	}
+
+	function Desc()
+	{
+		return "translation #" + m_nKeyIndex;
+	}
+
+	m_nKeyIndex = null;
+	m_xformOld = null;
+	m_xformNew = null;
 }
 
 function GizmoOnMouseDown()
 {
-	// PushUndo( "translation" );
+	local pUndo = m_pUndoTranslation = CUndoTranslation();
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	m_pUndoTranslation.m_xformOld = clone m_KeyFrames[ m_nCurKeyframe ].transform;
 
 	m_bMouseDown = true;
 }
 
 function GizmoOnMouseRelease()
 {
-	// PushRedo( "translation" );
+	if ( m_nTranslation )
+	{
+		m_pUndoTranslation.m_xformNew = clone m_KeyFrames[ m_nCurKeyframe ].transform;
+		PushUndo( m_pUndoTranslation );
+	};
+
+	m_pUndoTranslation = null;
 
 	m_bMouseDown = false;
 	m_bMouseForceUp = false;
@@ -2221,6 +2378,8 @@ function GizmoOnMouseRelease()
 			return;
 
 		local max = m_KeyFrames.len()-2;
+		if ( max < 0 )
+			return;
 
 		local cur = m_nCurKeyframe;
 		if ( cur < 2 )
@@ -2246,6 +2405,12 @@ function GizmoOnMouseRelease()
 
 			for ( ; flCurTime < flKeyFrameTime; flCurTime += g_FrameTime, ++nSampleFrame )
 			{
+				local i = offset + nSampleFrame;
+
+				// This key might be out of the existing path range
+				if ( !(i in m_PathData) )
+					return;
+
 				local t = flCurTime / flKeyFrameTime;
 
 				local org = Vector();
@@ -2253,7 +2418,7 @@ function GizmoOnMouseRelease()
 				_Process.SplineOrigin( nKeyIdx, t, org );
 				_Process.SplineAngles( nKeyIdx, t, ang );
 
-				local frame = m_PathData[ offset + nSampleFrame ];
+				local frame = m_PathData[ i ];
 				frame.origin = org;
 				frame.angles = ang;
 			}
@@ -2277,7 +2442,6 @@ function ShowGizmo( i = null )
 		return MsgFail("No keyframes found.\n");
 
 	m_bGizmoEnabled = !!i;
-	ToggleFrameThink( m_bGizmoEnabled );
 
 	Msg("Translation manipulator " + m_bGizmoEnabled.tointeger() + "\n");
 
@@ -2299,136 +2463,131 @@ function ShowGizmo( i = null )
 //--------------------------------------------------------------
 
 
-// Keyframe states (transform matrices) are saved before the action with PushUndo,
-// and after the action with PushRedo.
-// Undo/Redo moves along the stack and applies these saved states.
-//
-// Alternatively use the older method of saving actions to be undone/redone, which would be more efficient.
-
-class CUndoElem
+function PushUndo( pUndoElem )
 {
-	// matrix3x4_t[]
-	undo = null;
-	undo_desc = null;
-	redo = null;
-	redo_desc = null;
+	local nStackLen = m_UndoStack.len();
 
-	function Push( type, desc, pKeyFrames )
-	{
-		this[type + "_desc"] = desc;
-
-		local c = pKeyFrames.len();
-		this[type] = array( c );
-
-		for ( local i = 0; i < c; ++i )
-		{
-			if ( !pKeyFrames[i] )
-			{
-				// in case something has gone wrong
-				pKeyFrames.resize(i);
-				this[type].resize(i);
-				return;
-			};
-			this[type][i] = clone pKeyFrames[i].transform;
-		}
-	}
-
-	function Apply( type, pKeyFrames ) : (keyframe_t)
-	{
-		local c = this[type].len();
-
-		pKeyFrames.resize(c);
-
-		for ( local i = 0; i < c; ++i )
-		{
-			if ( !pKeyFrames[i] )
-			{
-				pKeyFrames[i] = keyframe_t();
-			};
-			pKeyFrames[i].transform = null;
-			pKeyFrames[i].transform = clone this[type][i];
-			pKeyFrames[i].UpdateFromMatrix();
-		}
-	}
-}
-
-function PushUndo( desc )
-{
 	// truncate future
-	m_UndoStack.resize( m_nUndoLevel );
+	// check range to reduce unnecessary shrink reallocations
+	if ( m_nUndoLevel < nStackLen )
+		m_UndoStack.resize( m_nUndoLevel );
 
-	if ( m_UndoStack.len() >= 16 )
+	if ( nStackLen >= m_nMaxUndoDepth )
 	{
 		m_nUndoLevel--;
 		m_UndoStack.remove(0);
 	};
 
-	local undo = CUndoElem();
-	undo.Push( "undo", desc, m_KeyFrames );
-	m_UndoStack.append( undo );
+	m_UndoStack.append( pUndoElem );
 	m_nUndoLevel++;
 }
 
-function PushRedo( desc )
-{
-	local undo = m_UndoStack[ m_nUndoLevel - 1 ];
-	undo.Push( "redo", desc, m_KeyFrames );
-}
-
+// kf_undo
 function Undo()
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
 
-	if ( !m_UndoStack.len() || m_nUndoLevel <= 0 )
+	if ( !m_UndoStack.len() || m_nUndoLevel <= 0 || m_pUndoTranslation || m_pUndoLoad )
 		return MsgFail("cannot undo\n");
 
 	m_nUndoLevel--;
 	local undo = m_UndoStack[ m_nUndoLevel ];
-	undo.Apply( "undo", m_KeyFrames );
+	undo.Undo();
 
-	Msg(Fmt( "Undo: %s\n", undo.undo_desc ));
+	// Truncate if there are no more redos
+	if ( !undo.CanRedo() )
+	{
+		m_UndoStack.resize( m_nUndoLevel );
+	};
+
+	Msg(Fmt( "Undo: %s\n", undo.Desc() ));
 
 	m_bDirty = true;
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
+// kf_redo
 function Redo()
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
 
-	if ( !m_UndoStack.len() || m_nUndoLevel > m_UndoStack.len() - 1 )
+	if ( !m_UndoStack.len() || m_nUndoLevel > m_UndoStack.len() - 1 || m_pUndoTranslation || m_pUndoLoad )
 		return MsgFail("cannot redo\n");
 
 	local undo = m_UndoStack[ m_nUndoLevel ];
 	m_nUndoLevel++;
-	undo.Apply( "redo", m_KeyFrames );
+	undo.Redo();
 
-	Msg(Fmt( "Redo: %s\n", undo.redo_desc ));
+	Msg(Fmt( "Redo: %s\n", undo.Desc() ));
 
 	m_bDirty = true;
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
+// kf_undo_history
 function PrintUndoStack()
 {
-	local c = m_UndoStack.len();
-	local level = m_nUndoLevel-1;
-	Msg(Fmt( "Undo stack	:	[%d / %d]\n", level, c-1 ));
+	local v = m_nUndoLevel - 1;
+	local c = m_UndoStack.len() - 1;
 
-	for ( local i = 0; i < c; ++i )
+	local i = v - 8;
+	local j = v + 8;
+
+	// lower limit
+	if ( i < 0 )
 	{
-		if ( i == level )
+		i = 0;
+		j = 16;
+	};
+
+	// upper limit
+	if ( j > c )
+	{
+		j = c;
+		i = j - 16;
+
+		// less than 16 actions
+		if ( i < 0 )
+			i = 0;
+	};
+
+	local lower = i > 0, upper = j < c;
+
+	Msg( "+-------------------------------+\n" );
+	Msg(Fmt( "| Action history    [%3d / %3d] |\n", v, c ));
+
+	if ( lower )
+	{
+		Msg( "|         ^\n" );
+	}
+	else
+	{
+		Msg( "+-------------------------------+\n" );
+	}
+
+	for ( ; i <= j; ++i )
+	{
+		if ( i == v ) // head
 		{
-			Msg(Fmt( "\t%2d : %s\t<-- HEAD\n", i, m_UndoStack[i].undo_desc ));
+			Msg(Fmt( "|===> %3d : %s\n", i, m_UndoStack[i].Desc() ));
 		}
 		else
 		{
-			Msg(Fmt( "\t%2d : %s\n", i, m_UndoStack[i].undo_desc ));
+			Msg(Fmt( "|     %3d : %s\n", i, m_UndoStack[i].Desc() ));
 		}
+	}
+
+	if ( upper )
+	{
+		Msg( "|         v\n" );
+	}
+	else
+	{
+		Msg( "+-------------------------------+\n" );
 	}
 }
 
@@ -2456,7 +2615,7 @@ function CopyKeyframe()
 	SetViewForward( key.forward );
 
 	MsgHint(Fmt( "Copied keyframe #%d\n", m_nCurKeyframe ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 function StopReplaceLerp()
@@ -2464,11 +2623,33 @@ function StopReplaceLerp()
 	m_pLerpFrustum = null;
 	m_hLerpKeyframe = null;
 	m_flLerpKeyAnim = null;
-	ToggleFrameThink( false );
+}
+
+
+class CUndoReplaceKeyframe extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].Copy( m_pOldFrame );
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].Copy( m_pNewFrame );
+	}
+
+	function Desc()
+	{
+		return "replace #" + m_nKeyIndex;
+	}
+
+	m_nKeyIndex = null;
+	m_pOldFrame = null;
+	m_pNewFrame = null;
 }
 
 // kf_replace
-function ReplaceKeyframe()
+function ReplaceKeyframe( bClick = 0 )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -2479,53 +2660,46 @@ function ReplaceKeyframe()
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to insert keyframes.\n");
 
-	// replace while not selected - activate click to replace
-	if ( m_nSelectedKeyframe == -1 )
-	{
-		m_bReplaceOnClick = true;
-		ToggleFrameThink( true );
-		m_nSelectedKeyframe = m_nCurKeyframe;
-
-		MsgHint(Fmt( "Left click to replace keyframe #%d...\n", m_nCurKeyframe ));
-		PlaySound(SND_BUTTON);
-		return;
-	};
-
-	// replace while seeing - copy and activate click to replace
+	// Unsee and activate click to replace at current position
 	if ( m_bSeeing )
 	{
-		m_bReplaceOnClick = true;
-		ToggleFrameThink( true );
-
-		// unsee and keep selected keyframe
-		local curkey = m_nSelectedKeyframe;
 		SeeKeyframe( 1, 0 );
-		m_nSelectedKeyframe = curkey;
 
+		// copy
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-
-		// HACKHACK: Set view position after the view entity is disabled to get the correct offset
-		VS.EventQueue.AddEvent( SetViewOrigin, 0.01, [this, key.origin] );
+		SetViewOrigin( key.origin );
 		SetViewForward( key.forward );
+	};
 
-		MsgHint(Fmt( "Left click to replace keyframe #%d...\n", m_nCurKeyframe ));
-		PlaySound(SND_BUTTON);
-		return;
+	if ( !bClick )
+	{
+		if ( m_nSelectedKeyframe == -1 )
+		{
+			m_bReplaceOnClick = true;
+			m_nSelectedKeyframe = m_nCurKeyframe;
+
+			MsgHint(Fmt( "Left click to replace keyframe #%d...\n", m_nCurKeyframe ));
+			PlaySound( SND_BUTTON );
+			return;
+		};
+
+		// Cancel if mouse was not clicked
+		if ( m_bReplaceOnClick )
+		{
+			OnMouse2Pressed();
+			return;
+		};
 	};
 
 	m_bReplaceOnClick = false;
 	m_nSelectedKeyframe = -1;
 
-	PushUndo( "replace" );
-
 	local key = m_KeyFrames[ m_nCurKeyframe ];
-	local copykey = clone key;
+	local keyCopy = clone key;
 
-	m_pLerpFrustum = [ copykey, key ];
+	m_pLerpFrustum = [ keyCopy, key ];
 	m_hLerpKeyframe = keyframe_t();
 	m_flLerpKeyAnim = 0.0;
-
-	ToggleFrameThink( true );
 
 	VS.EventQueue.CancelEventsByInput( StopReplaceLerp );
 	// animate it 5 times
@@ -2539,7 +2713,11 @@ function ReplaceKeyframe()
 	key.SetOrigin( pos );
 	key.SetFov( null );
 
-	PushRedo( "replace" );
+	local pUndo = CUndoReplaceKeyframe();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_pOldFrame = keyCopy;
+	pUndo.m_pNewFrame = clone key;
 
 	m_bDirty = true;
 
@@ -2547,11 +2725,40 @@ function ReplaceKeyframe()
 	DrawBoxAnglesFilled( pos, Vector(-4,-4,-4), Vector(4,4,4), ang, 127, 255, 0, 127, 1.5 );
 
 	MsgHint(Fmt( "Replaced keyframe #%d\n", m_nCurKeyframe ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoInsertKeyframe extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames.remove( m_nKeyIndex );
+
+		// Reset selection
+		if ( Base.m_nCurKeyframe == m_nKeyIndex || Base.m_nSelectedKeyframe == -1 )
+		{
+			Base.m_nCurKeyframe = 0;
+			Base.m_nSelectedKeyframe = -1;
+		}
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames.insert( m_nKeyIndex, m_pNewFrame );
+	}
+
+	function Desc()
+	{
+		return "insert #" + m_nKeyIndex;
+	}
+
+	m_nKeyIndex = null;
+	m_pNewFrame = null;
 }
 
 // kf_insert
-function InsertKeyframe()
+function InsertKeyframe( bClick = 0 )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -2562,18 +2769,35 @@ function InsertKeyframe()
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to insert keyframes.\n");
 
+	// Unsee and activate click to insert at current position
 	if ( m_bSeeing )
-		return MsgFail("Cannot insert while seeing!\n");
-
-	if ( m_nSelectedKeyframe == -1 )
 	{
-		m_bInsertOnClick = true;
-		ToggleFrameThink( true );
-		m_nSelectedKeyframe = m_nCurKeyframe;
+		SeeKeyframe( 1, 0 );
 
-		MsgHint(Fmt( "Left click to insert keyframe at #%d...\n", m_nCurKeyframe ));
-		PlaySound(SND_BUTTON);
-		return;
+		// copy
+		local key = m_KeyFrames[ m_nCurKeyframe ];
+		SetViewOrigin( key.origin );
+		SetViewForward( key.forward );
+	};
+
+	if ( !bClick )
+	{
+		if ( m_nSelectedKeyframe == -1 )
+		{
+			m_bInsertOnClick = true;
+			m_nSelectedKeyframe = m_nCurKeyframe;
+
+			MsgHint(Fmt( "Left click to insert keyframe at #%d...\n", m_nCurKeyframe ));
+			PlaySound( SND_BUTTON );
+			return;
+		};
+
+		// Cancel if mouse was not clicked
+		if ( m_bInsertOnClick )
+		{
+			OnMouse2Pressed();
+			return;
+		};
 	};
 
 	m_bInsertOnClick = false;
@@ -2583,14 +2807,15 @@ function InsertKeyframe()
 	local ang = MainViewAngles();
 	local dir = MainViewForward();
 
-	PushUndo( "insert" );
-
 	local key = keyframe_t();
 	key.SetOrigin( pos );
 	key.SetAngles( ang );
 	m_KeyFrames.insert( m_nCurKeyframe, key );
 
-	PushRedo( "insert" );
+	local pUndo = CUndoInsertKeyframe();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_pNewFrame = clone key;
 
 	m_bDirty = true;
 
@@ -2598,7 +2823,38 @@ function InsertKeyframe()
 	DrawBoxAnglesFilled( pos, Vector(-4,-4,-4), Vector(4,4,4), ang, 127, 255, 0, 127, 1.5 );
 
 	MsgHint(Fmt( "Inserted keyframe #%d\n", m_nCurKeyframe ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoRemoveKeyframe extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames.insert( m_nKeyIndex, m_pOldFrame );
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames.remove( m_nKeyIndex );
+
+		// Reset selection
+		if ( Base.m_nCurKeyframe == m_nKeyIndex || Base.m_nSelectedKeyframe == -1 )
+		{
+			Base.m_nCurKeyframe = 0;
+			Base.m_nSelectedKeyframe = -1;
+		}
+
+		Base.CheckAnyKeysLeft();
+	}
+
+	function Desc()
+	{
+		return "remove #" + m_nKeyIndex;
+	}
+
+	m_nKeyIndex = null;
+	m_pOldFrame = null;
 }
 
 // kf_remove
@@ -2617,27 +2873,18 @@ function RemoveKeyframe()
 	if ( m_bSeeing )
 		SeeKeyframe(1);
 
-	PushUndo( "remove" );
-
 	local key = m_KeyFrames.remove( m_nCurKeyframe );
 
-	PushRedo( "remove" );
+	local pUndo = CUndoRemoveKeyframe();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_pOldFrame = clone key;
 
 	if ( !m_KeyFrames.len() )
 	{
 		MsgHint("Removed all keyframes.\n");
 
-		// current
-		m_nCurKeyframe = 0;
-
-		// unselect
-		m_nSelectedKeyframe = -1;
-
-		m_bGizmoEnabled = false;
-		ToggleFrameThink( false );
-
-		// cheap way to hide the sprite
-		SetHelperOrigin( MAX_COORD_VEC );
+		CheckAnyKeysLeft();
 	}
 	else
 	{
@@ -2653,7 +2900,29 @@ function RemoveKeyframe()
 
 	m_bDirty = true;
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoRemoveFOV extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetFov( m_nFov );
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetFov( null );
+	}
+
+	function Desc()
+	{
+		return "remove fov #" + m_nKeyIndex;
+	}
+
+	m_nKeyIndex = null;
+	m_nFov = null;
 }
 
 // kf_removefov
@@ -2673,12 +2942,42 @@ function RemoveFOV()
 	if ( !key.fov )
 		return MsgFail(Fmt( "No FOV data on keyframe #%d found.\n", m_nCurKeyframe ));
 
+	local pUndo = CUndoRemoveFOV();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_nFov = key.fov;
+
 	key.SetFov( null );
 
 	CompileFOV();
 
 	MsgHint(Fmt( "Removed FOV data at keyframe #%d\n", m_nCurKeyframe ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoAddKeyframe extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames.pop();
+
+		// Reset selection
+		if ( Base.m_nCurKeyframe == Base.m_KeyFrames.len()-1 || Base.m_nSelectedKeyframe == -1 )
+		{
+			Base.m_nCurKeyframe = 0;
+			Base.m_nSelectedKeyframe = -1;
+		}
+
+		Base.CheckAnyKeysLeft();
+	}
+
+	function Redo()
+	{
+		Base.ArrayAppend( Base.m_KeyFrames, m_pNewFrame );
+	}
+
+	m_pNewFrame = null;
 }
 
 // kf_add
@@ -2690,8 +2989,6 @@ function AddKeyframe()
 	if ( m_bSeeing )
 		return MsgFail("Cannot add new keyframe while seeing!\n");
 
-	PushUndo( "add" );
-
 	local pos = MainViewOrigin();
 	local ang = MainViewAngles();
 	local dir = MainViewForward();
@@ -2701,7 +2998,9 @@ function AddKeyframe()
 	key.SetAngles( ang );
 	ArrayAppend( m_KeyFrames, key );
 
-	PushRedo( "add" );
+	local pUndo = CUndoAddKeyframe( "add #" + (m_KeyFrames.len()-1) );
+	PushUndo( pUndo );
+	pUndo.m_pNewFrame = clone key;
 
 	m_bDirty = true;
 
@@ -2710,7 +3009,44 @@ function AddKeyframe()
 	DrawBoxAnglesFilled( pos, Vector(-4,-4,-4), Vector(4,4,4), ang, 127, 255, 0, 127, t );
 
 	MsgHint(Fmt( "Added keyframe #%d\n", (m_KeyFrames.len()-1) ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoRemoveAllKeyframes extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames.resize( m_pFrames.len() );
+
+		foreach( i, v in m_pFrames )
+		{
+			Base.m_KeyFrames[i] = clone v;
+		}
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames.clear();
+		Base.CheckAnyKeysLeft();
+	}
+
+	function Desc()
+	{
+		return "clear";
+	}
+
+	function Clone()
+	{
+		m_pFrames = clone Base.m_KeyFrames;
+
+		foreach ( i, v in Base.m_KeyFrames )
+		{
+			m_pFrames[i] = clone v;
+		}
+	}
+
+	m_pFrames = null;
 }
 
 // kf_clear
@@ -2726,29 +3062,37 @@ function RemoveAllKeyframes()
 	if ( m_bSeeing )
 		SeeKeyframe(1);
 
-	PushUndo( "clear" );
-
-	// unselect
-	m_nSelectedKeyframe = -1;
-
-	// current
-	m_nCurKeyframe = 0;
+	local pUndo = CUndoRemoveAllKeyframes();
+	PushUndo( pUndo );
+	pUndo.Clone();
 
 	MsgHint(Fmt( "Removed %d keyframes.\n", m_KeyFrames.len() ));
 
 	m_KeyFrames.clear();
 
-	PushRedo( "clear" );
+	CheckAnyKeysLeft();
 
 	m_bDirty = true;
-
-	m_bGizmoEnabled = false;
-	ToggleFrameThink( false );
 
 	// cheap way to hide the sprite
 	SetHelperOrigin( MAX_COORD_VEC );
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+// Reset things
+function CheckAnyKeysLeft()
+{
+	if ( !(0 in m_KeyFrames) )
+	{
+		m_nCurKeyframe = 0;
+		m_nSelectedKeyframe = -1;
+
+		m_bGizmoEnabled = false;
+
+		// cheap way to hide the sprite
+		SetHelperOrigin( MAX_COORD_VEC );
+	};
 }
 
 
@@ -2812,7 +3156,7 @@ function SetAngleInterp( i = null )
 			return SetAngleInterp( m_nInterpolatorAngle + 1 );
 	}
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 // kf_mode_origin
@@ -2858,7 +3202,32 @@ function SetOriginInterp( i = null )
 			return SetOriginInterp( m_nInterpolatorOrigin + 1 );
 	}
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoSetFrameTime extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].frametime = m_flFrameTimeOld;
+		Base.m_KeyFrames[ m_nKeyIndex ].samplecount = ( m_flFrameTimeOld / Base.g_FrameTime ).tointeger();
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].frametime = m_flFrameTimeNew;
+		Base.m_KeyFrames[ m_nKeyIndex ].samplecount = ( m_flFrameTimeNew / Base.g_FrameTime ).tointeger();
+	}
+
+	function Desc()
+	{
+		return Fmt( "frametime #%i : %f -> %f", m_nKeyIndex, m_flFrameTimeOld, m_flFrameTimeNew );
+	}
+
+	m_nKeyIndex = null;
+	m_flFrameTimeNew = null;
+	m_flFrameTimeOld = null;
 }
 
 //
@@ -2866,8 +3235,11 @@ function SetOriginInterp( i = null )
 //
 // kf_samplecount
 //
-function SetSampleCount( nSampleCount, nKey = -1 )
+function SetSampleCount( nSampleCount = KF_NOPARAM, nKey = -1 )
 {
+	if ( nSampleCount == KF_NOPARAM )
+		throw "wrong number of parameters";
+
 	if ( m_bCompiling || m_bPreview )
 		return MsgFail("Cannot change sampling rate while compiling!\n");
 
@@ -2889,6 +3261,12 @@ function SetSampleCount( nSampleCount, nKey = -1 )
 
 	local key = m_KeyFrames[ nKey ];
 
+	local pUndo = CUndoSetFrameTime();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = nKey;
+	pUndo.m_flFrameTimeNew = flTime;
+	pUndo.m_flFrameTimeOld = key.frametime;
+
 	if ( key.samplecount != nSampleCount )
 	{
 		key.frametime = flTime;
@@ -2897,7 +3275,7 @@ function SetSampleCount( nSampleCount, nKey = -1 )
 	};
 
 	Msg(Fmt( "Interpolation sample count on keyframe #%d is set to: %d (%fs)\n", nKey, nSampleCount, flTime ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 //
@@ -2905,8 +3283,11 @@ function SetSampleCount( nSampleCount, nKey = -1 )
 //
 // kf_frametime
 //
-function SetFrameTime( flTime, nKey = -1 )
+function SetFrameTime( flTime = KF_NOPARAM, nKey = -1 )
 {
+	if ( flTime == KF_NOPARAM )
+		throw "wrong number of parameters";
+
 	if ( m_bCompiling || m_bPreview )
 		return MsgFail("Cannot change sampling rate while compiling!\n");
 
@@ -2931,6 +3312,12 @@ function SetFrameTime( flTime, nKey = -1 )
 
 	local key = m_KeyFrames[ nKey ];
 
+	local pUndo = CUndoSetFrameTime();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = nKey;
+	pUndo.m_flFrameTimeNew = flTime;
+	pUndo.m_flFrameTimeOld = key.frametime;
+
 	if ( key.samplecount != nSampleCount )
 	{
 		key.frametime = flTime;
@@ -2939,7 +3326,7 @@ function SetFrameTime( flTime, nKey = -1 )
 	};
 
 	Msg(Fmt( "Interpolation sample count on keyframe #%d is set to: %d (%fs)\n", nKey, nSampleCount, flTime ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 // kf_auto_fill_boundaries
@@ -2954,7 +3341,7 @@ function SetAutoFillBoundaries( i = null )
 	m_bAutoFillBoundaries = !!i;
 
 	Msg(Fmt( "Auto fill boundaries : %d\n", m_bAutoFillBoundaries.tointeger() ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 //--------------------------------------------------------------
@@ -3002,7 +3389,7 @@ function Compile()
 
 	Msg("\n");
 	Msg("Preparing...\n");
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 
 	_Process.CreateThread( _Process.StartCompile, _Process );
 	return _Process.StartThread();
@@ -3306,7 +3693,7 @@ function _Process::FinishCompile()
 	{
 		Msg( "\n\nERROR: Angle interp errors at keyframes:" );
 		foreach( i in m_pSquadErrors )
-			Msg(Fmt( "  %d-%d", i, i+1 ));
+			Msg(Fmt( "  %d", i+1 ));
 		Msg("\n");
 
 		m_pSquadErrors = null;
@@ -3322,7 +3709,7 @@ function _Process::FinishCompile()
 
 	Msg("\nCompilation complete.\n");
 	Msg(Fmt( "Path length: %g seconds\n\n", m_PathData.len() * g_FrameTime ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 function _Process::CompileFOV()
@@ -3371,7 +3758,7 @@ function _Process::CompileFOV()
 				continue;
 
 			// time to move between previous and current fov keys
-			local rate = g_FrameTime * GetSampleCount( i, j );
+			local rate = GetSampleCount( i, j ) * g_FrameTime;
 
 			// frame to start fov lerping
 			local frame = GetSampleCount( 1, i );
@@ -3531,10 +3918,66 @@ function StopTransformLerp()
 {
 	m_pLerpTransform = null;
 	m_flLerpTransformAnim = null;
-	ToggleFrameThink( false );
 }
 
-function TransformKeyframes( pivot, vecOffset, vecAngle ) : (array, vec3_origin)
+
+class CUndoTransformKeyframes extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames.resize( m_pFramesOld.len() );
+
+		foreach( i, v in m_pFramesOld )
+		{
+			Base.m_KeyFrames[i] = clone v;
+		}
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames.resize( m_pFramesNew.len() );
+
+		foreach( i, v in m_pFramesNew )
+		{
+			Base.m_KeyFrames[i] = clone v;
+		}
+	}
+
+	function Desc()
+	{
+		return "transform";
+	}
+
+	function ClonePre()
+	{
+		m_pFramesOld = clone Base.m_KeyFrames;
+
+		foreach ( i, v in Base.m_KeyFrames )
+		{
+			m_pFramesOld[i] = clone v;
+		}
+	}
+
+	function ClonePost()
+	{
+		m_pFramesNew = clone Base.m_KeyFrames;
+
+		foreach ( i, v in Base.m_KeyFrames )
+		{
+			m_pFramesNew[i] = clone v;
+		}
+	}
+
+	m_pFramesOld = null;
+	m_pFramesNew = null;
+}
+
+//
+// void TransformKeyframes( Vector offset )
+// void TransformKeyframes( Vector|null offset, Vector angles )
+// void TransformKeyframes( int pivot, Vector offset, Vector angles )
+//
+function TransformKeyframes( p1 = null, p2 = null, p3 = null ) : (array, vec3_origin)
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -3542,10 +3985,65 @@ function TransformKeyframes( pivot, vecOffset, vecAngle ) : (array, vec3_origin)
 	if ( !m_KeyFrames.len() )
 		return MsgFail("No keyframes found.\n");
 
-	local vecPivot;
+	local vecPivot, vecOffset, vecAngle;
+	local t1 = typeof p1, t2 = typeof p2, t3 = typeof p3;
 
-	if ( typeof pivot == "integer" )
+	//
+	// void TransformKeyframes( Vector offset )
+	//
+	if ( t1 == "Vector" && t2 == "null" && t3 == "null" )
 	{
+		vecPivot = vec3_origin;
+		vecOffset = p1;
+		vecAngle = vec3_origin;
+	};
+
+	//
+	// void TransformKeyframes( null, Vector angles )
+	//
+	if ( t1 == "null" && t2 == "Vector" && t3 == "null" )
+	{
+		t1 = "Vector";
+		p1 = vec3_origin;
+	};
+
+	//
+	// void TransformKeyframes( Vector offset, Vector angles )
+	//
+	if ( t1 == "Vector" && t2 == "Vector" && t3 == "null" )
+	{
+		// p2 -> p3
+		t3 = t2;
+		p3 = p2;
+
+		// p1 -> p2
+		t2 = t1;
+		p2 = p1;
+
+		// pivot average
+		t1 = "integer";
+		p1 = -1;
+	};
+
+	//
+	// void TransformKeyframes( int pivot, null, Vector angles )
+	//
+	if ( t1 == "integer" && t2 == "null" && t3 == "Vector" )
+	{
+		t2 = "Vector";
+		p2 = vec3_origin;
+	};
+
+	//
+	// void TransformKeyframes( int pivot, Vector offset, Vector angles )
+	//
+	if ( t1 == "integer" && t2 == "Vector" && t3 == "Vector" )
+	{
+		vecOffset = p2;
+		vecAngle = p3;
+
+		local pivot = p1;
+
 		// view origin
 		if ( pivot == -2 )
 		{
@@ -3573,28 +4071,18 @@ function TransformKeyframes( pivot, vecOffset, vecAngle ) : (array, vec3_origin)
 			vecPivot = Vector();
 			VS.VectorCopy( m_KeyFrames[pivot].origin, vecPivot );
 		};;
-	}
-	else
-	{
-		vecPivot = pivot;
 	};
 
-	if ( !vecOffset )
+	if (	typeof vecPivot != "Vector"		||
+			typeof vecOffset != "Vector"	||
+			typeof vecAngle != "Vector"		)
 	{
-		vecOffset = vec3_origin;
+		return MsgFail("Invalid parameters\n");
 	};
 
-	if ( !vecAngle )
-	{
-		vecAngle = vec3_origin;
-	};
-
-	if ( !(vecPivot instanceof Vector) ||
-		!(vecOffset instanceof Vector) ||
-		!(vecAngle instanceof Vector) )
-		return MsgFail("Invalid input\n");
-
-	PushUndo( "transform" );
+	local pUndo = CUndoTransformKeyframes();
+	PushUndo( pUndo );
+	pUndo.ClonePre();
 
 	local matRotate = matrix3x4_t();
 	VS.AngleMatrix( vecAngle, null, matRotate );
@@ -3621,18 +4109,17 @@ function TransformKeyframes( pivot, vecOffset, vecAngle ) : (array, vec3_origin)
 		key.UpdateFromMatrix();
 	}
 
-	PushRedo( "transform" );
+	pUndo.ClonePost();
 
 	m_bDirty = true;
 
-	ToggleFrameThink( true );
 	VS.EventQueue.CancelEventsByInput( StopTransformLerp );
 	// animate it 5 times
 	local t = 5 * 100 * FrameTime();
 	VS.EventQueue.AddEvent( StopTransformLerp, t, this );
 
 	DrawBox( vecPivot, Vector(-4,-4,-4), Vector(4,4,4), 255,255,255,255, t );
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 
@@ -3665,7 +4152,7 @@ function SmoothOrigin( r = 4 ) : (ThreadHelper)
 		return MsgFail("Invalid input.\n");
 
 	Msg(Fmt( "Smoothing origins... (%d) %s\n", r, m_bDirty ? " (dirty)" : "" ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 
 	local msg;
 	if ( m_Selection[0] && m_Selection[1] )
@@ -3697,7 +4184,7 @@ function SmoothAngles( exp = 0, r = 10 ) : (ThreadHelper)
 	r = r.tointeger();
 
 	Msg(Fmt( "Smoothing angles... (%d) %s\n", r, m_bDirty ? " (dirty)" : "" ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 
 	local msg;
 	if ( m_Selection[0] && m_Selection[1] )
@@ -3959,13 +4446,13 @@ function _Save::EndWrite()
 
 if ( !m_FileBuffer.parent )
 {
-	local m_LoadedDatas = m_LoadedDatas;
+	local m_LoadedData = m_LoadedData;
 	local root = getroottable();
 	local meta =
 	{
-		_newslot = function( k, v ) : ( root, m_LoadedDatas )
+		_newslot = function( k, v ) : ( root, m_LoadedData )
 		{
-			m_LoadedDatas.rawset( k, v );
+			m_LoadedData.rawset( k, v );
 			if ( k in root && root[k] )
 			{
 				// TODO: compare?
@@ -4007,6 +4494,14 @@ function LoadFileError()
 }
 
 
+class CUndoLoad extends CUndoTransformKeyframes
+{
+	function Desc()
+	{
+		return "load keyframes";
+	}
+}
+
 // TODO: cleanup
 function _Load::LoadData( input = null )
 {
@@ -4018,7 +4513,7 @@ function _Load::LoadData( input = null )
 	{
 		input = "lk_" + g_szMapName;
 
-		if ( !( input in m_LoadedDatas ) && !( input in getroottable() ) )
+		if ( !( input in m_LoadedData ) && !( input in getroottable() ) )
 		{
 			input = "l_" + g_szMapName;
 		};
@@ -4031,9 +4526,9 @@ function _Load::LoadData( input = null )
 		{
 			input = getroottable()[input];
 		}
-		else if ( input in m_LoadedDatas )
+		else if ( input in m_LoadedData )
 		{
-			input = m_LoadedDatas[input];
+			input = m_LoadedData[input];
 		}
 		else
 		{
@@ -4107,8 +4602,11 @@ function _Load::LoadData( input = null )
 		return MsgFail("Invalid data type!\n");
 	};;
 
-
-	PushUndo( "load" );
+	if ( m_nLoadType == KF_DATA_TYPE_KEYFRAMES )
+	{
+		local pUndo = m_pUndoLoad = CUndoLoad();
+		pUndo.ClonePre();
+	};
 
 	m_pLoadData.clear();
 	m_pLoadData.resize( framecount );
@@ -4121,7 +4619,7 @@ function _Load::LoadData( input = null )
 	};
 
 	Msg("Preparing to load...\n");
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 	Msg("\tversion     : " + m_nLoadVer + "\n");
 	Msg("\ttype        : " + m_nLoadType + "\n");
 	Msg("\tframe count : " + framecount + "\n");
@@ -4256,7 +4754,7 @@ function LoadFinishInternal()
 
 	local szInput = VS.GetVarName( m_pLoadInput );
 
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 	Msg(Fmt( "\nLoading complete! \"%s\" ( %s )\n",
 		szInput,
 		(
@@ -4266,13 +4764,18 @@ function LoadFinishInternal()
 		)
 	));
 
-	if ( szInput in m_LoadedDatas )
-		delete m_LoadedDatas[szInput];
+	if ( szInput in m_LoadedData )
+		delete m_LoadedData[szInput];
 
 	if ( szInput in getroottable() )
 		delete getroottable()[szInput];;
 
-	PushRedo( "load" );
+	if ( m_pUndoLoad )
+	{
+		m_pUndoLoad.ClonePost();
+		PushUndo( m_pUndoLoad );
+		m_pUndoLoad = null;
+	};
 
 	SetEditModeTemp( m_bInEditMode );
 }
@@ -4477,21 +4980,20 @@ function Stop()
 		HideHudHint();
 	}
 	else if ( !m_bInPlayback )
-		return MsgFail("Playback is not running.\n");;
-
-	if ( !m_bPreview )
 	{
-		Msg(Fmt( "Playback has ended.\n" ));
-	}
-	else
-	{
-		Msg("Preview has ended.\n");
-	};
+		return MsgFail("Playback is not running.\n");
+	};;
 
 	if ( m_bPreview )
 	{
+		Msg("Preview has ended.\n");
+
 		if ( m_bAutoFillBoundaries )
 			_Process.FillBoundariesRevert();
+	}
+	else
+	{
+		Msg("Playback has ended.\n");
 	};
 
 	m_bInPlayback = false;
@@ -4513,6 +5015,28 @@ function Stop()
 //--------------------------------------------------------------
 
 
+class CUndoKeyframeFOV extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetFov( m_nFovOld );
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetFov( m_nFovNew );
+	}
+
+	function Desc()
+	{
+		return Fmt( "fov #%i : %i -> %i", m_nKeyIndex, m_nFovOld, m_nFovNew );
+	}
+
+	m_nKeyIndex = null;
+	m_nFovOld = null;
+	m_nFovNew = null;
+}
+
 function SetKeyframeFOV( input )
 {
 	if ( m_bCompiling )
@@ -4531,12 +5055,42 @@ function SetKeyframeFOV( input )
 		CameraSetFov( input, 0.25 );
 
 	local key = m_KeyFrames[ m_nCurKeyframe ];
+
+	local pUndo = CUndoKeyframeFOV();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_nFovOld = key.fov ? key.fov : 90;
+	pUndo.m_nFovNew = input;
+
 	key.SetFov( input );
 
 	CompileFOV();
 
 	MsgHint(Fmt( "Set keyframe #%d FOV to %d\n", m_nCurKeyframe, input ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
+}
+
+
+class CUndoKeyframeRoll extends CUndoElement
+{
+	function Undo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetAngles( m_vecAnglesOld );
+	}
+
+	function Redo()
+	{
+		Base.m_KeyFrames[ m_nKeyIndex ].SetAngles( m_vecAnglesNew );
+	}
+
+	function Desc()
+	{
+		return Fmt( "roll #%i : %g -> %g", m_nKeyIndex, m_vecAnglesOld.z, m_vecAnglesNew.z );
+	}
+
+	m_nKeyIndex = null;
+	m_vecAnglesOld = null;
+	m_vecAnglesNew = null;
 }
 
 function SetKeyframeRoll( input )
@@ -4547,15 +5101,19 @@ function SetKeyframeRoll( input )
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to use camera roll.\n");
 
-	PushUndo( "roll" );
-
 	input = VS.AngleNormalize( input.tofloat() );
 
 	local key = m_KeyFrames[ m_nCurKeyframe ];
+
+	local pUndo = CUndoKeyframeRoll();
+	PushUndo( pUndo );
+	pUndo.m_nKeyIndex = m_nCurKeyframe;
+	pUndo.m_vecAnglesOld = key.angles * 1;
+
 	key.angles.z = input;
 	key.SetAngles( key.angles );
 
-	PushRedo( "roll" );
+	pUndo.m_vecAnglesNew = key.angles * 1;
 
 	// refresh
 	if ( m_bSeeing )
@@ -4567,11 +5125,14 @@ function SetKeyframeRoll( input )
 	};
 
 	MsgHint(Fmt( "Set keyframe #%d roll to %g\n", m_nCurKeyframe, input ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
-function Trim( flInputLen, bDirection = 1 )
+function Trim( flInputLen = KF_NOPARAM, bDirection = 1 )
 {
+	if ( flInputLen == KF_NOPARAM )
+		throw "wrong number of parameters";
+
 	if ( m_bCompiling )
 		return MsgFail("Cannot trim while compiling!\n");
 
@@ -4617,7 +5178,7 @@ function Trim( flInputLen, bDirection = 1 )
 	};
 
 	Msg(Fmt( "Trimmed: %g -> %g\n", flCurLen, m_PathData.len() * g_FrameTime ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 function UndoTrim()
@@ -4651,7 +5212,7 @@ function UndoTrim()
 	m_TrimData.clear();
 
 	Msg(Fmt( "Undone trim: %g -> %g\n", flCurLen, m_PathData.len() * g_FrameTime ));
-	PlaySound(SND_BUTTON);
+	PlaySound( SND_BUTTON );
 }
 
 
@@ -4673,6 +5234,7 @@ CompileFOV <- _Process.CompileFOV.bindenv(_Process);
 VS.OnTimer( m_hThinkEdit, EditModeThink, this );
 VS.OnTimer( m_hThinkAnim, AnimThink, this );
 VS.OnTimer( m_hThinkCam, CameraThink, this );
+VS.OnTimer( m_hThinkFrame, FrameThink, this );
 
 function PostSpawn()
 {
@@ -4751,9 +5313,9 @@ function PrintCmd()
 	Msg("kf_insert               : Insert new keyframe before the selected keyframe\n");
 	Msg("kf_replace              : Replace the current keyframe\n");
 	Msg("kf_copy                 : Set player pos/ang to the current keyframe\n");
-	Msg("kf_undo                 : Undo last keyframe modify action\n");
-	Msg("kf_redo                 : Redo	\n");
-	Msg("kf_undo_history         : Show undo history\n");
+	Msg("kf_undo                 : Undo last action\n");
+	Msg("kf_redo                 : Redo last action\n");
+	Msg("kf_undo_history         : Show action history\n");
 	Msg("                        :\n");
 	Msg("kf_compile              : Compile the keyframe data\n");
 	Msg("kf_smooth_angles        : Smooth compiled path angles\n");

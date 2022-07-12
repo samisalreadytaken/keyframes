@@ -684,34 +684,34 @@ function ListenKeys( i )
 	{
 		ListenMouse(0);
 
-		player.SetInputCallback( "+moveright", fnMoveRight1, KF_CB_CONTEXT );
-		player.SetInputCallback( "-moveright", fnMoveRight0, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+moveright", fnMoveRight1, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-moveright", fnMoveRight0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+moveleft", fnMoveLeft1, KF_CB_CONTEXT );
-		player.SetInputCallback( "-moveleft", fnMoveLeft0, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+moveleft", fnMoveLeft1, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-moveleft", fnMoveLeft0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+forward", fnForward1, KF_CB_CONTEXT );
-		player.SetInputCallback( "-forward", fnForward0, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+forward", fnForward1, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-forward", fnForward0, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+back", fnBack1, KF_CB_CONTEXT );
-		player.SetInputCallback( "-back", fnBack0, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+back", fnBack1, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-back", fnBack0, KF_CB_CONTEXT );
 
 		// freeze player
 		player.SetMoveType( 0 );
 	}
 	else
 	{
-		player.SetInputCallback( "+moveright", null, KF_CB_CONTEXT );
-		player.SetInputCallback( "-moveright", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+moveright", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-moveright", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+moveleft", null, KF_CB_CONTEXT );
-		player.SetInputCallback( "-moveleft", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+moveleft", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-moveleft", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+forward", null, KF_CB_CONTEXT );
-		player.SetInputCallback( "-forward", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+forward", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-forward", null, KF_CB_CONTEXT );
 
-		player.SetInputCallback( "+back", null, KF_CB_CONTEXT );
-		player.SetInputCallback( "-back", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+back", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-back", null, KF_CB_CONTEXT );
 
 		// enable noclip
 		player.SetMoveType( 8 );
@@ -724,17 +724,17 @@ function ListenMouse( i )
 	{
 		ListenKeys(0);
 
-		player.SetInputCallback( "+attack", OnMouse1Pressed, KF_CB_CONTEXT );
-		player.SetInputCallback( "+attack2", OnMouse2Pressed, KF_CB_CONTEXT );
-		player.SetInputCallback( "-attack", OnMouse1Released, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+attack", OnMouse1Pressed, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "+attack2", OnMouse2Pressed, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-attack", OnMouse1Released, KF_CB_CONTEXT );
 	}
 	else
 	{
-		player.SetInputCallback( "-attack", null, KF_CB_CONTEXT );
+		VS.SetInputCallback( player, "-attack", null, KF_CB_CONTEXT );
 	};
 }
 
-player.SetInputCallback( "+use", function(...)
+VS.SetInputCallback( player, "+use", function(...)
 {
 	SeeKeyframe(0,1);
 
@@ -4351,7 +4351,6 @@ function Save( i = null )
 	m_bSaveInProgress = true;
 
 	VS.Log.file_prefix = "scripts/vscripts/kf_data";
-	VS.Log.enabled = true;
 	VS.Log.export = true;
 	VS.Log.filter = "L ";
 
@@ -4423,7 +4422,7 @@ function _Save::Write()
 
 function _Save::EndWrite()
 {
-	VS.Log.Run( null, function( file )
+	VS.Log.Run( function( file )
 	{
 		m_bSaveInProgress = false;
 		PlaySound( SND_EXPORT_SUCCESS );
@@ -4436,7 +4435,7 @@ function _Save::EndWrite()
 		{
 			Msg(Fmt( "Exported keyframe data: /csgo/%s.log\n\n", file ));
 		};;
-	} );
+	}, this );
 }
 
 

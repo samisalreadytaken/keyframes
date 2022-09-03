@@ -3,6 +3,19 @@
 
 --------------------------------
 
+2022-09-16 [v1.3.0]
+- Added local space transformation on 3D manipulator, enabled by default (toggle with [T])
+- Added rotation and screen manipulators (toggle with [R])
+- Added custom 3D manipulator pivots (set via pivot handle in screen manipulator)
+- Added snapping to world on 3D manipulator (hold CTRL while holding a manipulator handle)
+- Added editable lights (kf_createlight)
+- Added ability to roll and pan the current camera keyframe by holding [Q] or [R] without entering replace mode, preserving existing fov and roll
+- Fixed undo/redo while in keyframe view
+- Fixed exporting data on maps with names containing unsupported characters
+- Fixed keyframe view mode (kf_see) not showing the correct FOV for keys inbetween FOV keys
+- Fixed keyframe view mode (kf_see) not showing the correct position when interpolation mode is BSpline
+- Various bug fixes and tweaks
+
 2022-06-30 [v1.2.11]
 - Added ability to insert keyframes while seeing (kf_see > kf_insert)
 - Pressing kf_select_path/kf_insert/kf_replace now toggle the modes instead of doing their actions

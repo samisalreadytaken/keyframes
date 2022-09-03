@@ -1,12 +1,12 @@
 # CS:GO Keyframe Smoothing Script
 [![ver][]](https://github.com/samisalreadytaken/keyframes)
 
-Quick smooth camera path creation.
+Quick smooth camera animation creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.2.11-informational
-[![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=NDczxKqJECY)
+[ver]: https://img.shields.io/badge/keyframes-v1.3.0-informational
+[![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=fefwKjaQsOY)
 
 
 ## Installation
@@ -27,9 +27,11 @@ sh <(curl -s https://raw.githubusercontent.com/samisalreadytaken/keyframes/maste
 ## Usage
 Use the console commands to load and control the script. It needs to be loaded each time the map is changed.
 
-See the _Default Key Binds_ section below for the keys that are available for you to use by default. These do not modify your settings. Optionally, bind your other keys to improve your workflow. You can find some examples at the bottom of the [keyframes.cfg](csgo/cfg/keyframes.cfg) file.
+See the _Default Key Binds_ section below for the keys that are available for you to use by default. These do not modify your settings. Optionally, bind other keys to improve your workflow. Suggested keybinds can be found in [keyframes.cfg](csgo/cfg/keyframes.cfg) file.
 
-Before enabling these key binds in the config file, make sure you have a backup of your own binds that would be modified. To revert any changes, you may use a different cfg file for convenience.
+Some features are only available via these custom binds.
+
+Before enabling these key binds, make sure you have a backup of your own binds that would be modified. To revert any changes, you may use a different cfg file for convenience - such as [keyframes_off.cfg](csgo/cfg/keyframes_off.cfg).
 
 Command                | Description
 ---------------------- | -------------------
@@ -47,9 +49,9 @@ Command                | Description
 `kf_undo_history`      | Show action history
 ---                    | ---
 `kf_compile`           | Compile the keyframe data
-`kf_smooth_angles`     | Smooth compiled path angles
-`kf_smooth_angles_exp` | Smooth compiled path angles exponentially
-`kf_smooth_origin`     | Smooth compiled path origin
+`kf_smooth_angles`     | Smooth compiled animation angles
+`kf_smooth_angles_exp` | Smooth compiled animation angles exponentially
+`kf_smooth_origin`     | Smooth compiled animation origin
 `kf_play`              | Play the compiled data
 `kf_play_loop`         | Play the compiled data looped
 `kf_preview`           | Play the keyframe data without compiling
@@ -62,13 +64,20 @@ Command                | Description
 `kf_auto_fill_boundaries`| Duplicate the first and last keyframes in compilation
 ---                    | ---
 `kf_edit`              | Toggle edit mode
-`kf_translate`         | Toggle 3D translation manipulator
-`kf_select_path`       | In edit mode, select path
+`kf_manipulator`       | Toggle 3D manipulator
+`kf_select`            | Select and hold current keyframe
+`kf_select_path`       | In edit mode, select animation path
 `kf_see`               | In edit mode, see the current selection.
 `kf_next`              | While holding a keyframe, select the next one
 `kf_prev`              | While holding a keyframe, select the previous one
 `kf_showkeys`          | In edit mode, toggle showing keyframes
-`kf_showpath`          | In edit mode, toggle showing the path
+`kf_showpath`          | In edit mode, toggle showing the animation path
+---                    | ---
+`kf_guides`            | Toggle camera guides
+`kf_elements`          | Toggle between element selection and camera animation
+`kf_createlight`       | Create a light
+`script kf_setparams({})`| Set current element parameters
+`kf_duplicate`         | Duplicate current element in place
 ---                    | ---
 `script kf_fov(val)`   | Set FOV data on the selected keyframe
 `script kf_roll(val)`  | Set camera roll on the selected keyframe
@@ -79,31 +88,31 @@ Command                | Description
 ---                    | ---
 `kf_loadfile`          | Load data file
 `script kf_load(input)`| Load new data from file
-`script kf_trim(val)`  | Trim compiled path to specified length. Specify second param for direction
+`script kf_trim(val)`  | Trim compiled animation path to specified length. Specify second param for direction
 `kf_trim_undo`         | Undo last trim action
 ---                    | ---
 `kf_cmd`               | List all commands
 
-Default Key Binds    | Command                        | Game command to listen
-:-------------------:| ------------------------------ | ---------------------------
-`MOUSE1`             | `kf_add`                       | `+attack`
-`MOUSE2`             | `kf_remove`                    | `+attack2`
-`E`                  | `kf_see`                       | `+use`
-`A` / `D`            | (In see mode) Set camera roll  | `+moveleft` / `+moveright`
-`W` / `S`            | (In see mode) Set camera FOV   | `+forward` / `+back`
-`MOUSE1`             | (In see mode) `kf_next`        | `+attack`
-`MOUSE2`             | (In see mode) `kf_prev`        | `+attack2`
+Default Key Binds    | Command
+:-------------------:| ------------------------------
+`MOUSE1`             | `kf_add` / `kf_next`
+`MOUSE2`             | `kf_remove` / `kf_prev` / Reset manipulator pivot
+`E`                  | `kf_see`
+`W` / `S`            | Set camera FOV
+`CTRL`               | Rotate around the current keyframe / Snap current translation to world / Snap pivot to world
 
-Suggested Key Binds  | Command
+Custom Key Binds     | Command
 :-------------------:|---------------
-`F`                  | `kf_select_path`
-`G`                  | `kf_translate`
+`Q`                  | Set camera roll (hold and move mouse while in keyframe view)
+`R`                  | `kf_replace` / Toggle manipulator modes / Pan the camera (hold and move mouse while in keyframe view)
+`T`                  | `kf_insert` / Toggle manipulation space
+`F`                  | `kf_select` (Select element to hold) / `kf_select_path` (Select path slice to playback)
+`G`                  | `kf_manipulator`
+`H`                  | `kf_undo_history`
 `Z`                  | `kf_undo`
 `X`                  | `kf_redo`
-`R`                  | `kf_replace`
-`T`                  | `kf_insert`
-`C`                  | `+movedown`
-`V`                  | `+moveup`
+`C`                  | `+kf_movedown` (hold to move the camera downwards)
+`V`                  | `+kf_moveup` (hold to move the camera upwards)
 
 
 ### File export
@@ -119,7 +128,7 @@ You can convert old saved data to new version by loading and saving - `script kf
 
 
 ### Implementation notes
-Spline interpolation requires 4 keyframes to interpolate between 2 keyframes. For this reason the very first and the very last keyframes do not have paths leading to and from them, but they affect the interpolation of the keyframes next to them. If desired, `kf_auto_fill_boundaries` can be used to toggle automatic duplication of these boundary keyframes.
+Spline interpolation requires 4 keyframes to interpolate between 2 keyframes. For this reason the very first and the very last keyframes do not have animation paths leading to and from them, but they affect the interpolation of the keyframes next to them. If desired, `kf_auto_fill_boundaries` can be used to toggle automatic duplication of these boundary keyframes.
 
 FOV values are interpolated between two consecutive _FOV keys_, independent of the pos-ang keys. The playback starts with FOV set to data on KEY 1. If KEY 1 FOV data is omitted, it is set to 90.
 
@@ -147,7 +156,7 @@ Examples:
 
 ![](../assets/gizmo1.gif)
 
-Use the translation manipulator (`kf_translate`) to easily move keyframes to see their effects on the live updated path.
+Use the 3D manipulator (`kf_manipulator`) to easily modify keyframes to see their effects on the live updated path. Press R to toggle manipulation modes, press T to toggle transformation space.
 
 Hold CTRL (`+duck`) and MOUSE1 (`+attack`) to rotate around the current keyframe.
 

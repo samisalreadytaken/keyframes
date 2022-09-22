@@ -2,7 +2,7 @@
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
 //-----------------------------------------------------------------------
-local VERSION = "1.3.0";
+local VERSION = "1.3.1";
 
 IncludeScript("vs_library");
 
@@ -87,6 +87,28 @@ SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
 
 //--------------------------------------------------------------
 
+//
+// Wrappers to make sq3 port simpler
+//
+
+function SetDelegate( _this, _that )
+{
+	return ( delegate _this : _that );
+}
+
+function GetDelegate( _this )
+{
+	return _this.parent;
+}
+
+function SetThinkEnabled( ent, state )
+{
+	// NOTE: This hits an assertion in debug build
+	return ent.__KeyValueFromInt( "nextthink", state ? 1 : -1 );
+}
+
+//--------------------------------------------------------------
+
 print("loading... (1)\n");
 SendToConsole("echo loading... (2);script _KF_.PostSpawn()");
 
@@ -114,6 +136,8 @@ const KF_INTERP_SIMPLE_CUBIC		= 7;;
 const KF_INTERP_COUNT				= 8;;
 
 
+const kViewOffset = 64.062561;
+const kCrouchViewOffset = 46.062561;
 
 ::vec3_origin <- Vector();
 ::vec3_invalid <- Vector( FLT_MAX, FLT_MAX, FLT_MAX );
@@ -125,7 +149,6 @@ if ( !("_Process" in this) )
 {
 	g_FrameTime <- 1.0 / 64.0;
 	g_szMapName <- split( GetMapName(), "/" ).top().tolower();
-	MAX_COORD_VEC <- Vector(MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1,MAX_COORD_FLOAT-1);
 
 	SND_BUTTON					<- "UIPanorama.container_countdown";
 	SND_EXPORT_SUCCESS			<- "Survival.TabletUpgradeSuccess";
@@ -142,9 +165,9 @@ if ( !("_Process" in this) )
 	m_KeyInputDown <- {}
 	m_KeyInputUp <- {}
 
-	_Process <- delegate this : {}
-	_Save <- delegate this : {}
-	_Load <- delegate this : {}
+	_Process <- SetDelegate( this, {} );
+	_Save <- SetDelegate( this, {} );
+	_Load <- SetDelegate( this, {} );
 
 	// HACKHACK: Instead of rewriting the whole script to support multiple elements, this
 	// flag is used to separate actions from targeting the camera keyframes and other elements (i.e. lights).
@@ -256,7 +279,7 @@ if ( !("_Process" in this) )
 	in_rotate <- false;
 	in_pan <- false;
 
-	m_iLastFOV <- 90;
+	m_flLastFOV <- 90;
 	m_vecLastAngles <- null;
 
 	m_nAnimKeyframeTime <- 0.0;
@@ -287,11 +310,11 @@ if ( !("m_hThinkCam" in this) )
 {
 	local frametime = FrameTime();
 
-	m_hThinkCam <- VS.Timer( false, g_FrameTime, null, null, false, true ).weakref();
-	VS.EventQueue.AddEvent( CBaseEntity.__KeyValueFromInt, frametime+0.001, [ m_hThinkCam, "nextthink", -1 ] );
-	m_hThinkEdit <- VS.Timer( true, s_flDisplayTime-frametime, null, null, false, true ).weakref();
-	m_hThinkAnim <- VS.Timer( true, frametime*10.0, null, null, false, true ).weakref();
-	m_hThinkFrame <- VS.Timer( true, frametime, null, null, false, true ).weakref();
+	m_hThinkCam <- VS.CreateTimer( false, g_FrameTime, null, null, false, true ).weakref();
+	VS.EventQueue.AddEvent( SetThinkEnabled, frametime+0.001, [ null, m_hThinkCam, false ] );
+	m_hThinkEdit <- VS.CreateTimer( true, s_flDisplayTime-frametime, null, null, false, true ).weakref();
+	m_hThinkAnim <- VS.CreateTimer( true, frametime*10.0, null, null, false, true ).weakref();
+	m_hThinkFrame <- VS.CreateTimer( true, frametime, null, null, false, true ).weakref();
 
 	m_hGameText <- VS.CreateEntity("game_text",
 	{
@@ -327,6 +350,7 @@ if ( !("m_hThinkCam" in this) )
 	PrecacheScriptSound( SND_EXPORT_SUCCESS );
 };
 
+local g_FrameTime = g_FrameTime;
 
 // load materials
 DrawLine( vec3_origin, vec3_origin, 0, 0, 0, true, 1 );
@@ -364,19 +388,14 @@ function CameraSetEnabled( b )
 
 function CameraSetThinkEnabled( b )
 {
-	// Set next think because IO is too slow
-	return m_hThinkCam.__KeyValueFromFloat( "nextthink", b ? 1 : -1 );
+	// Sets next think because IO is too slow
+	return SetThinkEnabled( m_hThinkCam, b );
 }
 
 
 function PlaySound(s)
 {
 	return player.EmitSound(s);
-}
-
-function HintColor( msg, r, g, b ) : (CenterPrintAll)
-{
-	return CenterPrintAll(Fmt( "<font color='#%02x%02x%02x'>%s</font>", r&0xFF, g&0xFF, b&0xFF, msg ));
 }
 
 function Hint(s)
@@ -444,6 +463,12 @@ function SetViewAngles( vec )
 	return player.SetAngles( vec.x, vec.y, vec.z );
 }
 
+// set angles no roll
+function SetViewAngles2D( vec )
+{
+	return player.SetAngles( vec.x, vec.y, 0.0 );
+}
+
 function SetViewForward( vec )
 {
 	return player.SetForwardVector( vec );
@@ -457,11 +482,11 @@ function MainViewOrigin()
 
 	if ( IsDucking() )
 	{
-		viewOrigin.z += 46.062561;
+		viewOrigin.z += kCrouchViewOffset;
 	}
 	else
 	{
-		viewOrigin.z += 64.062561;
+		viewOrigin.z += kViewOffset;
 	}
 
 	return viewOrigin;
@@ -576,7 +601,6 @@ class keyframe_t //extends frame_t
 	forward = null;		// Vector
 	right = null;		// Vector
 	up = null;			// Vector
-	orientation = null;	// Quaternion
 	transform = null;	// matrix3x4_t
 	fov = null;			// int
 	_fovx = null;		// float
@@ -594,59 +618,47 @@ class keyframe_t //extends frame_t
 		forward = Vector();
 		right = Vector();
 		up = Vector();
-		orientation = Quaternion();
 		SetFov( null );
 	}
 
 	function SetOrigin( input )
 	{
 		VS.VectorCopy( input, origin );
-		VS.MatrixSetColumn( origin, 3, transform );
+		return VS.MatrixSetColumn( origin, 3, transform );
 	}
 
-	// QAngle
 	function SetAngles( input )
 	{
 		VS.VectorCopy( input, angles );
 		VS.AngleMatrix( angles, origin, transform );
-
-		VS.AngleQuaternion( angles, orientation );
-
-		VS.MatrixVectors( transform, forward, right, up );
+		return VS.MatrixVectors( transform, forward, right, up );
 	}
 
-	// Quaternion
 	function SetQuaternion( input )
 	{
-		VS.VectorCopy( input, orientation ); orientation.w = input.w;
-		VS.QuaternionMatrix( orientation, origin, transform );
-
-		VS.MatrixVectors( transform, forward, right, up );
-
+		VS.QuaternionMatrix( input, origin, transform );
 		VS.MatrixAngles( transform, angles );
+		return VS.MatrixVectors( transform, forward, right, up );
 	}
 
-	// Vector
 	function SetForward( input )
 	{
-		VS.VectorCopy( input, forward );
-		VS.VectorVectors( forward, right, up );
+		VS.VectorMatrix( input, transform );
+		VS.MatrixAngles( transform, angles );
+		return VS.MatrixVectors( transform, forward, right, up );
+	}
 
-		VS.VectorAngles( forward, angles );
-
-		VS.AngleQuaternion( angles, orientation );
-
-		VS.MatrixSetColumn( forward, 0, transform );
-		VS.MatrixSetColumn( right * -1, 1, transform );
-		VS.MatrixSetColumn( up, 2, transform );
+	function GetQuaternion()
+	{
+		local q = Quaternion();
+		VS.MatrixQuaternionFast( transform, q );
+		return q;
 	}
 
 	function UpdateFromMatrix()
 	{
-		VS.MatrixGetColumn( transform, 3, origin );
 		VS.MatrixAngles( transform, angles, origin );
-		VS.MatrixVectors( transform, forward, right, up );
-		VS.AngleQuaternion( angles, orientation );
+		return VS.MatrixVectors( transform, forward, right, up );
 	}
 
 	function SetFov( val, rate = null )
@@ -660,12 +672,11 @@ class keyframe_t //extends frame_t
 		{
 			fov = null;
 			_fovx = VS.CalcFovX( 90.0, 16./9. * 0.75 );
-		};
+		}
 	}
 
 	function DrawFrustum1( r, g, b, time )
 	{
-		// could just use a model
 		return VS.DrawViewFrustum(
 			origin,
 			forward,
@@ -725,10 +736,8 @@ class keyframe_t //extends frame_t
 	{
 		VS.MatrixCopy( src.transform, transform );
 
-		VS.MatrixGetColumn( transform, 3, origin );
+		VS.MatrixAngles( transform, angles, origin );
 		VS.MatrixVectors( transform, forward, right, up );
-		VS.MatrixAngles( transform, angles );
-		VS.MatrixQuaternionFast( transform, orientation );
 
 		SetFov( src.fov );
 
@@ -979,16 +988,7 @@ function OnForwardPressed(...)
 	{
 		in_forward = true;
 
-		local key = m_KeyFrames[ m_nCurKeyframe ];
-		if ( key.fov )
-		{
-			m_iLastFOV = key.fov;
-		}
-		else
-		{
-			local interp = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
-			m_iLastFOV = interp ? interp : 90.0;
-		}
+		m_flLastFOV = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
 
 		// NOTE: In some unknown conditions movetype seems to be noclip while m_bSeeing is true
 		// enforce this state here again
@@ -1005,15 +1005,15 @@ function OnForwardReleased(...)
 		in_forward = false;
 
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-		if ( (key.fov ? key.fov : 90) != m_iLastFOV )
+		if ( (key.fov ? key.fov : 90) != m_flLastFOV )
 		{
 			local pUndo = CUndoKeyframeFOV();
 			PushUndo( pUndo );
 			pUndo.m_nKeyIndex = m_nCurKeyframe;
-			pUndo.m_nFovOld = key.fov ? key.fov : 90;
-			pUndo.m_nFovNew = m_iLastFOV;
+			pUndo.m_nFovOld = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
+			pUndo.m_nFovNew = m_flLastFOV;
 
-			key.SetFov( m_iLastFOV );
+			key.SetFov( m_flLastFOV );
 
 			m_bDirty = true;
 		}
@@ -1028,16 +1028,7 @@ function OnBackPressed(...)
 	{
 		in_back = true;
 
-		local key = m_KeyFrames[ m_nCurKeyframe ];
-		if ( key.fov )
-		{
-			m_iLastFOV = key.fov;
-		}
-		else
-		{
-			local interp = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
-			m_iLastFOV = interp ? interp : 90.0;
-		}
+		m_flLastFOV = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
 
 		// NOTE: In some unknown conditions movetype seems to be noclip while m_bSeeing is true
 		// enforce this state here again
@@ -1054,15 +1045,15 @@ function OnBackReleased(...)
 		in_back = false;
 
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-		if ( (key.fov ? key.fov : 90) != m_iLastFOV )
+		if ( (key.fov ? key.fov : 90) != m_flLastFOV )
 		{
 			local pUndo = CUndoKeyframeFOV();
 			PushUndo( pUndo );
 			pUndo.m_nKeyIndex = m_nCurKeyframe;
-			pUndo.m_nFovOld = key.fov ? key.fov : 90;
-			pUndo.m_nFovNew = m_iLastFOV;
+			pUndo.m_nFovOld = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
+			pUndo.m_nFovNew = m_flLastFOV;
 
-			key.SetFov( m_iLastFOV );
+			key.SetFov( m_flLastFOV );
 
 			m_bDirty = true;
 		}
@@ -1229,18 +1220,9 @@ function SetEditMode( state = null, msg = true )
 
 function SetEditModeTemp( state )
 {
-	if ( state )
-	{
-		m_hThinkEdit.__KeyValueFromFloat( "nextthink", 1 );
-		m_hThinkAnim.__KeyValueFromFloat( "nextthink", 1 );
-		m_hThinkFrame.__KeyValueFromFloat( "nextthink", 1 );
-	}
-	else
-	{
-		m_hThinkEdit.__KeyValueFromFloat( "nextthink", -1 );
-		m_hThinkAnim.__KeyValueFromFloat( "nextthink", -1 );
-		m_hThinkFrame.__KeyValueFromFloat( "nextthink", -1 );
-	}
+	SetThinkEnabled( m_hThinkEdit, state );
+	SetThinkEnabled( m_hThinkAnim, state );
+	SetThinkEnabled( m_hThinkFrame, state );
 }
 
 // kf_select_path
@@ -1441,7 +1423,7 @@ function SeeKeyframe( bUnsafeUnsee = 0, bShowMsg = 1 )
 		// set fov to selected
 		// interpolate if it has inherited fov
 		local fov = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
-		if ( fov != null )
+		if ( fov != 90.0 )
 			CameraSetFov( fov, 0.1 );
 
 		// Set position on the spline
@@ -1492,9 +1474,8 @@ function UpdateCamera()
 	if ( m_bSeeing )
 	{
 		local key = m_KeyFrames[ m_nCurKeyframe ];
-
-		if ( key.fov )
-			CameraSetFov( key.fov, 0.1 );
+		local fov = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
+		CameraSetFov( fov, 0.1 );
 		CameraSetOrigin( key.origin );
 		return CameraSetAngles( key.angles );
 	}
@@ -1946,8 +1927,8 @@ function FrameThink()
 				dt = 0.5;
 			}
 
-			m_iLastFOV = clamp( m_iLastFOV + dt, 1, 179 );
-			CameraSetFov( m_iLastFOV, g_FrameTime );
+			m_flLastFOV = clamp( m_flLastFOV + dt, 1, 179 );
+			CameraSetFov( m_flLastFOV, g_FrameTime );
 		}
 
 		if ( in_moveup || in_movedown )
@@ -2062,13 +2043,15 @@ function KeyframeLerp( in1, in2, frac )
 {
 	local out = m_hLerpKeyframe;
 	VS.VectorLerp( in1.origin, in2.origin, frac, out.origin );
-	VS.QuaternionSlerp( in1.orientation, in2.orientation, frac, out.orientation );
-	out.SetQuaternion( out.orientation ); // update transform matrix
+
+	local qt = VS.QuaternionSlerp( in1.GetQuaternion(), in2.GetQuaternion(), frac );
+	out.SetQuaternion( qt ); // update transform matrix
 
 	if ( in1._fovx != in2._fovx )
 	{
-		out.SetFov( VS.Lerp( in1._fovx, in2._fovx, frac ) );
-	};
+		local t = VS.Lerp( in1._fovx, in2._fovx, frac );
+		out.SetFov( t );
+	}
 
 	return out;
 }
@@ -2453,6 +2436,7 @@ function Manipulator_DrawPlane( vecOrigin, vecAxis, vecHorz, vecVert, r, g, b, f
 
 		function SetPosition( newPosition )
 		{
+			VS.MatrixSetColumn( newPosition, 3, m_Transform );
 			m_hEntity.SetAbsOrigin( newPosition );
 		}
 
@@ -2489,8 +2473,6 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 	}
 	else
 	{
-		// Get local axes from the matrix instead of keyframe_t members to generalise and
-		// to get rid of FLU conversion each time.
 		vecAxisForward = VS.MatrixGetColumn( pTransform, 0 ) * 1;
 		vecAxisLeft = VS.MatrixGetColumn( pTransform, 1 ) * 1;
 		vecAxisUp = VS.MatrixGetColumn( pTransform, 2 ) * 1;
@@ -3689,7 +3671,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					CameraSetOrigin( pos );
 					CameraSetForward( viewForward );
 
-					pos.z -= 46.0;
+					pos.z -= kCrouchViewOffset;
 					player.SetOrigin( pos );
 				}
 
@@ -4059,12 +4041,12 @@ function ShowGizmo( i = null )
 
 	if ( m_bGizmoEnabled )
 	{
-		m_hThinkAnim.__KeyValueFromFloat( "nextthink", -1 );
+		SetThinkEnabled( m_hThinkAnim, false );
 		m_nAnimKeyframeIdx = -1;
 	}
 	else
 	{
-		m_hThinkAnim.__KeyValueFromFloat( "nextthink", 1 );
+		SetThinkEnabled( m_hThinkAnim, true );
 	};
 
 	return PlaySound( SND_BUTTON );
@@ -5372,10 +5354,6 @@ function RemoveFOV()
 	if ( !m_bInEditMode )
 		return MsgFail("You need to be in edit mode to remove FOV data.\n");
 
-	// refresh
-	if ( m_bSeeing )
-		CameraSetFov( 0, 0.1 );
-
 	local key = m_KeyFrames[ m_nCurKeyframe ];
 	if ( !key.fov )
 		return MsgFail(Fmt( "No FOV data on keyframe #%d found.\n", m_nCurKeyframe ));
@@ -5388,6 +5366,13 @@ function RemoveFOV()
 	key.SetFov( null );
 
 	CompileFOV();
+
+	// refresh
+	if ( m_bSeeing )
+	{
+		local fov = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
+		CameraSetFov( fov, 0.1 );
+	}
 
 	MsgHint(Fmt( "Removed FOV data at keyframe #%d\n", m_nCurKeyframe ));
 	return PlaySound( SND_BUTTON );
@@ -5965,10 +5950,10 @@ function _Process::SplineAngles( i, frac, out )
 		{
 			local spline = Quaternion();
 
-			local q0 = m_KeyFrames[i-1].orientation;
-			local q1 = m_KeyFrames[i].orientation;
-			local q2 = m_KeyFrames[i+1].orientation;
-			local q3 = m_KeyFrames[i+2].orientation;
+			local q0 = m_KeyFrames[i-1].GetQuaternion();
+			local q1 = m_KeyFrames[i].GetQuaternion();
+			local q2 = m_KeyFrames[i+1].GetQuaternion();
+			local q3 = m_KeyFrames[i+2].GetQuaternion();
 
 			local p1 = Quaternion();
 			local p2 = Quaternion();
@@ -6011,8 +5996,8 @@ function _Process::SplineAngles( i, frac, out )
 		{
 			local spline = Quaternion();
 			VS.QuaternionSlerp(
-				m_KeyFrames[i].orientation,
-				m_KeyFrames[i+1].orientation,
+				m_KeyFrames[i].GetQuaternion(),
+				m_KeyFrames[i+1].GetQuaternion(),
 				frac,
 				spline );
 			VS.QuaternionAngles( spline, out );
@@ -6952,7 +6937,7 @@ function _Save::EndWrite()
 //--------------------------------------------------------------
 
 
-if ( !m_FileBuffer.parent )
+if ( !GetDelegate( m_FileBuffer ) )
 {
 	local m_LoadedData = m_LoadedData;
 	local root = getroottable();
@@ -6971,7 +6956,7 @@ if ( !m_FileBuffer.parent )
 			Msg("\t~ Loaded: " + k + "\n");
 		}
 	}
-	delegate meta : m_FileBuffer;
+	SetDelegate( meta, m_FileBuffer );
 };
 
 function LoadFile( msg = true )
@@ -7341,7 +7326,7 @@ function CameraThink()
 		CameraSetAngles( ang );
 
 		// NOTE: This is here for external effects that may use player angles (such as flashbangs)
-		player.SetAngles( ang.x, ang.y, 0 );
+		SetViewAngles2D( ang );
 
 		if ( pt.fov )
 			CameraSetFov( pt.fov, pt.fov_rate );
@@ -7376,7 +7361,7 @@ function CameraThink()
 		CameraSetAngles( ang );
 
 		// HACKHACK: set player angles as well to get the correct angle in CurrentViewAngles in edit mode
-		player.SetAngles( ang.x, ang.y, 0 );
+		SetViewAngles2D( ang );
 
 		local key = m_KeyFrames[ m_nPlaybackIdx ];
 
@@ -7483,8 +7468,8 @@ function Play( type = KF_PLAY_DEFAULT )
 
 	// HACKHACK: set player angles as well to get the correct angle in CurrentViewAngles in edit mode
 	local curang = MainViewAngles();
-	m_AnglesRestore = [ player, curang.x, curang.y, 0 ];
-	player.SetAngles( ang.x, ang.y, 0 );
+	m_AnglesRestore = curang;
+	SetViewAngles2D( ang );
 
 	CameraSetEnabled( true );
 	CameraSetThinkEnabled( false );
@@ -7560,7 +7545,8 @@ function Stop()
 
 	CameraSetFov(0,0);
 
-	VS.EventQueue.AddEvent( player.SetAngles, 0.025, m_AnglesRestore );
+	VS.EventQueue.AddEvent( SetViewAngles2D, 0.025, [ this, m_AnglesRestore ] );
+	m_AnglesRestore = null;
 
 	SetEditModeTemp( m_bInEditMode );
 
@@ -7625,7 +7611,7 @@ function SetKeyframeFOV( input )
 	local pUndo = CUndoKeyframeFOV();
 	PushUndo( pUndo );
 	pUndo.m_nKeyIndex = m_nCurKeyframe;
-	pUndo.m_nFovOld = key.fov ? key.fov : 90;
+	pUndo.m_nFovOld = GetInterpolatedKeyframeFOV( m_nCurKeyframe );
 	pUndo.m_nFovNew = input;
 
 	key.SetFov( input );
@@ -7633,7 +7619,7 @@ function SetKeyframeFOV( input )
 	CompileFOV();
 
 	MsgHint(Fmt( "Set keyframe #%d FOV to %d\n", m_nCurKeyframe, input ));
-	PlaySound( SND_BUTTON );
+	return PlaySound( SND_BUTTON );
 }
 
 

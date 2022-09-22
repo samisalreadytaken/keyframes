@@ -3,6 +3,9 @@
 
 --------------------------------
 
+2022-09-22 [v1.3.1]
+- Minor bugfixes
+
 2022-09-16 [v1.3.0]
 - Added local space transformation on 3D manipulator, enabled by default (toggle with [T])
 - Added rotation and screen manipulators (toggle with [R])

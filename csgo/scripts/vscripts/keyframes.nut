@@ -4,7 +4,150 @@
 //-----------------------------------------------------------------------
 local VERSION = "1.3.1";
 
-IncludeScript("vs_library");
+
+//
+// mapbase compatibility
+//
+// Apart from the regex replacement (from vs_math), missing global aliases and vs_library functions below,
+// changes to the code below include:
+//
+// - Replacing CBaseEntity::SetAngles() with SetEntityAngles() (mapbase takes Vector, CSGO takes x,y,z)
+// - Replacing timer entity "nextthink" toggle with CBaseEntity::AcceptInput() (to suppress debug build assertions)
+// - Removal of m_bDuckFixup (HL2 player view does not change while in noclip and crouched)
+// - Change to kViewOffset and kCrouchViewOffset (HL2 offsets differ from CSGO)
+// - Replacing IsDucking() hull size check with +duck command hook (button check is not good beacuse it's often not cancelled while in noclip)
+// - Removal of 'threaded' funcs - letting the game freeze during compilation
+// - Minor changes to _Save::Write() to support save/load
+//
+
+	IncludeScript("vs_math");
+
+	local matrix3x4_t = VS.matrix3x4_t;
+	local Quaternion = VS.Quaternion;
+	local VMatrix = VS.VMatrix;
+	local Ray_t = VS.Ray_t;
+	local FrameTime = IntervalPerTick;
+
+	DebugDrawLine <- debugoverlay.Line.bindenv(debugoverlay);
+	DebugDrawBox <- debugoverlay.Box.bindenv(debugoverlay);
+	DebugDrawBoxAngles <- debugoverlay.BoxAngles.bindenv(debugoverlay);
+	PrecacheScriptSound <- function(s) { player.PrecacheSoundScript(s); }
+	GetDeveloperLevel <- developer <- function() { return Convars.GetInt("developer"); }
+	Assert <- assert;
+
+	function SetEntityAngles( p, v )
+	{
+		return p.SetAngles( v );
+	}
+
+	VS.EventQueue <-
+	{
+		CancelEventsByInput = dummy
+
+		AddEvent = function( fn, delay, env )
+		{
+			if ( typeof env == "array" )
+			{
+				player.SetContextThink( DoUniqueString(""), function(self){ fn.acall(env) }, delay );
+			}
+			else
+			{
+				player.SetContextThink( DoUniqueString(""), function(self){ fn.call(env) }, delay );
+			}
+		}
+	}
+
+	class VS.TraceLine
+	{
+		endpos = null;
+		normal = null;
+		constructor( start, end, ent, mask )
+		{
+			local tr = TraceLineComplex( start, end, ent, mask, 0 );
+			endpos = tr.EndPos();
+			normal = tr.Plane().normal;
+			tr.Destroy();
+		}
+		function GetPos() { return endpos; }
+		function GetNormal() { return normal; }
+	}
+
+	function VS::CreateEntity( sz, kv, _ = null )
+	{
+		if ( !kv )
+			kv = {};
+		return SpawnEntityFromTable( sz, kv );
+	}
+
+	function VS::CreateTimer( bDisabled, flInterval, flLower = null, flUpper = null, bOscillator = false, bMakePersistent = false )
+	{
+		local ent = CreateEntity( "logic_timer", null, bMakePersistent );
+		if ( flInterval != null )
+		{
+			ent.__KeyValueFromInt( "UseRandomTime", 0 );
+			ent.__KeyValueFromFloat( "RefireTime", flInterval.tofloat() );
+		}
+		else Assert(0);
+		EntFireByHandle( ent, bDisabled ? "Disable" : "Enable", "", 0.0, null, null );
+		return ent;
+	}
+
+	function VS::OnTimer( hEnt, Func, scope )
+	{
+		Assert( typeof Func == "function" );
+
+		hEnt.ValidateScriptScope();
+		hEnt.GetScriptScope()["OnTimer"] <- Func.bindenv( scope );
+		return hEnt.ConnectOutput( "OnTimer", "OnTimer" );
+	}
+
+	function VS::SetInputCallback( player, cmd, fn, ctx )
+	{
+		Convars.RegisterCommand( cmd, function(...) { fn(null); return true; }, "", 0 );
+	}
+
+	function VS::ToExtendedPlayer( pl )
+	{
+		local ret =
+		{
+			self = pl
+			EyeForward = pl.GetEyeForward.bindenv(pl)
+			EyeRight = pl.GetEyeRight.bindenv(pl)
+			EyeUp = pl.GetEyeUp.bindenv(pl)
+		}
+
+		foreach ( k, v in pl.getclass() )
+			ret[k] <- v.bindenv(pl);
+
+		ret.SetAngles = function(x,y,z){ return SetAngles(::Vector(x,y,z)) }.bindenv(pl);
+
+		return ret;
+	}
+
+	ToExtendedPlayer <- VS.ToExtendedPlayer;
+	VS.GetPlayerByIndex <- EntIndexToHScript;
+
+	// default binds
+	Convars.RegisterCommand( "phys_swap", function(...){ SendToConsole("+kf_g;-kf_g") }, "", 0 )
+	Convars.RegisterCommand( "+reload", function(...){ SendToConsole("+kf_r") }, "", 0 )
+	Convars.RegisterCommand( "-reload", function(...){ SendToConsole("-kf_r") }, "", 0 )
+	Convars.RegisterCommand( "impulse", function(...)
+	{
+		if ( vargv[1] == "100" )
+		{
+			SendToConsole("+kf_f;-kf_f")
+			return;
+		}
+		return true;
+	}, "", 0 )
+
+	Convars.RegisterCommand( "+duck", function(...) { _KF_.in_duck = true }, "", 0 )
+	Convars.RegisterCommand( "-duck", function(...) { _KF_.in_duck = false }, "", 0 )
+
+//
+//--------------------------------------------------------------
+//--------------------------------------------------------------
+//
 
 if ( !("_KF_" in getroottable()) )
 	::_KF_ <- { version = "" };;
@@ -93,18 +236,17 @@ SendToConsole("alias kf_load\"script _KF_.LoadFileError()\"");
 
 function SetDelegate( _this, _that )
 {
-	return ( delegate _this : _that );
+	return _this.setdelegate(_that);
 }
 
 function GetDelegate( _this )
 {
-	return _this.parent;
+	return _this.getdelegate();
 }
 
 function SetThinkEnabled( ent, state )
 {
-	// NOTE: This hits an assertion in debug build
-	return ent.__KeyValueFromInt( "nextthink", state ? 1 : -1 );
+	return ent.AcceptInput( state ? "Enable" : "Disable", "", null, null );
 }
 
 //--------------------------------------------------------------
@@ -136,8 +278,8 @@ const KF_INTERP_SIMPLE_CUBIC		= 7;;
 const KF_INTERP_COUNT				= 8;;
 
 
-const kViewOffset = 64.062561;
-const kCrouchViewOffset = 46.062561;
+const kViewOffset = 64.0;
+const kCrouchViewOffset = 32.0;
 
 ::vec3_origin <- Vector();
 ::vec3_invalid <- Vector( FLT_MAX, FLT_MAX, FLT_MAX );
@@ -269,6 +411,7 @@ if ( !("_Process" in this) )
 	m_bCameraGuides <- false;
 	m_flWindowAspectRatio <- 16.0 / 9.0;
 
+	in_duck <- false;
 	in_moveup <- false;
 	in_movedown <- false;
 	in_forward <- false;
@@ -363,7 +506,7 @@ DrawBox( vec3_origin, vec3_origin, Vector(1,1,1), 0, 0, 0, 254, 1 );
 
 function CameraSetAngles(v)
 {
-	return m_hView.SetAngles( v.x, v.y, v.z );
+	return SetEntityAngles( m_hView, v );
 }
 
 function CameraSetForward(v)
@@ -444,7 +587,7 @@ function ArrayAppend( arr, val )
 
 function IsDucking()
 {
-	return player.GetBoundingMaxs().z != 72.0;
+	return in_duck;
 }
 
 function SetViewOrigin( vec )
@@ -607,7 +750,7 @@ class keyframe_t //extends frame_t
 	samplecount = 0;	// int
 	frametime = 0.0;	// float
 
-	constructor() : (g_FrameTime)
+	constructor()
 	{
 		samplecount = KF_SAMPLE_COUNT_DEFAULT;
 		frametime = KF_SAMPLE_COUNT_DEFAULT * g_FrameTime;
@@ -1484,7 +1627,7 @@ function UpdateCamera()
 
 local vCapsuleUp = Vector();
 
-function EditModeThink() : ( s_flDisplayTime, vCapsuleUp )
+function EditModeThink()
 {
 	if ( !m_bCameraTimeline )
 	{
@@ -2103,7 +2246,7 @@ function DrawGrid( pos, right, up )
 // |||||||||||t     |  h
 // -----------------
 //
-function DrawProgressBar( pos, flPercent, w, h, r, g, b, viewAngles ) : ( vRectMin, vRectMax )
+function DrawProgressBar( pos, flPercent, w, h, r, g, b, viewAngles )
 {
 	vRectMax.x = vRectMin.x = vRectMax.y = vRectMax.z = 0.0;
 	vRectMin.y = w;
@@ -2125,7 +2268,7 @@ function DrawProgressBar( pos, flPercent, w, h, r, g, b, viewAngles ) : ( vRectM
 	return DrawBoxAngles( pos, vRectMin, vRectMax, viewAngles, r, g, b, 255, -1 );
 }
 
-function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRectMax )
+function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles )
 {
 	if ( s != vRectMax.z )
 	{
@@ -2136,7 +2279,7 @@ function DrawRectFilled( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRect
 	return DrawBoxAngles( pos, vRectMin, vRectMax, viewAngles, r, g, b, a, t );
 }
 
-function DrawRectRotated( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRectMax )
+function DrawRectRotated( pos, s, r, g, b, a, t, viewAngles )
 {
 	if ( s != vRectMax.z )
 	{
@@ -2150,7 +2293,7 @@ function DrawRectRotated( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRec
 	return DrawBoxAngles( pos, vRectMin, vRectMax, angles, r, g, b, a, t );
 }
 
-function DrawRectOutlined( pos, s, r, g, b, a, t, viewAngles ) : ( vRectMin, vRectMax )
+function DrawRectOutlined( pos, s, r, g, b, a, t, viewAngles )
 {
 	local thickness = s * 0.25;
 	local gap = s - thickness * 2.;
@@ -2344,7 +2487,7 @@ function Manipulator_IsIntersectingPlane( viewOrigin, viewForward, vecOrigin, ve
 }
 
 function Manipulator_DrawAxis( vecOrigin, vecAxis, r, g, b, flScaleX1, flScaleX2, iAxis )
-	: ( vAxisMin, vAxisMax )
+
 {
 	if ( m_bGlobalTransform )
 	{
@@ -2380,7 +2523,7 @@ function Manipulator_DrawAxis( vecOrigin, vecAxis, r, g, b, flScaleX1, flScaleX2
 }
 
 function Manipulator_DrawPlane( vecOrigin, vecAxis, vecHorz, vecVert, r, g, b, flScaleXY1, flScaleXY2, iAxis )
-	: ( vPlaneMin, vPlaneMax )
+
 {
 	if ( m_bGlobalTransform )
 	{
@@ -2453,7 +2596,7 @@ function Manipulator_DrawPlane( vecOrigin, vecAxis, vecHorz, vecVert, r, g, b, f
 */
 
 
-function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vAxisMin, vAxisMax, vPlaneMin, vPlaneMax )
+function ManipulatorThink( element, viewOrigin, viewForward, viewAngles )
 {
 	local pTransform = element.m_Transform;
 	local vecPosition = VS.MatrixGetColumn( pTransform, 3 ) * 1;
@@ -3563,7 +3706,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 			}
 		}
 
-		if ( m_bDuckFixup )
+		if ( 0 && m_bDuckFixup )
 		{
 			local v = player.GetOrigin();
 			v.z -= 9.017594;
@@ -3574,7 +3717,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 	// ducking with no selection, rotate camera around cursor
 	else if ( !nSelection )
 	{
-		if ( !m_bDuckFixup )
+		if ( 0 && !m_bDuckFixup )
 		{
 			local v = player.GetOrigin();
 			v.z += 9.017594;
@@ -3687,7 +3830,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 	// ducking while translating
 	else if ( nSelection & KF_TRANSFORM_PLANE_XYZ )
 	{
-		if ( !m_bDuckFixup )
+		if ( 0 && !m_bDuckFixup )
 		{
 			local v = player.GetOrigin();
 			v.z += 9.017594;
@@ -3751,7 +3894,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 	// ducking while choosing a pivot
 	else if ( nSelection & KF_TRANSFORM_PLANE_PIVOT )
 	{
-		if ( !m_bDuckFixup )
+		if ( 0 && !m_bDuckFixup )
 		{
 			local v = player.GetOrigin();
 			v.z += 9.017594;
@@ -4332,7 +4475,7 @@ class CLight extends CBaseElement
 	function SetRotation( ang )
 	{
 		VS.AngleMatrix( ang, m_vecPosition, m_Transform );
-		m_hEntity.SetAngles( ang.x, ang.y, ang.z );
+		SetEntityAngles( m_hEntity, ang );
 	}
 
 	function UpdateFromMatrix()
@@ -4341,7 +4484,7 @@ class CLight extends CBaseElement
 		VS.MatrixAngles( m_Transform, angles, m_vecPosition );
 
 		m_hEntity.SetAbsOrigin( m_vecPosition );
-		m_hEntity.SetAngles( angles.x, angles.y, angles.z );
+		SetEntityAngles( m_hEntity, angles );
 	}
 
 	function DrawFrustum()
@@ -4446,7 +4589,7 @@ class CLight extends CBaseElement
 //
 
 function CLight::Manip_IsIntersecting( vecOrigin, viewOrigin, rayDelta, originToView, flScale )
-	: (IntersectRayWithRect)
+
 {
 	local kLightSliderVertOffset = flScale * kLightSliderVertOffset;
 	local kLightSliderWidth = flScale * kLightSliderWidth;
@@ -5814,50 +5957,49 @@ function Compile()
 //
 {
 	_Process._thread <- null;
+	_Process._env <- null;
 
-	function _Process::CreateThread( func, env = null ) : (newthread)
+	function _Process::CreateThread( func, env = null )
 	{
-		if ( _thread && (_thread.getstatus() != "idle") )
-			Assert( 0, "Tried to create a thread while one was already running" );
-
-		_thread = newthread( func.bindenv( env ? env : VS.GetCaller() ) );
+		_thread = func;
+		_env = env;
 	}
 
 	function _Process::StartThread( ... )
 	{
-		switch ( vargc )
+		switch ( vargv.len() )
 		{
-			case 0: return _thread.call();
-			case 1: return _thread.call( vargv[0] );
-			case 2: return _thread.call( vargv[0], vargv[1] );
-			case 3: return _thread.call( vargv[0], vargv[1], vargv[2] );
-			case 4: return _thread.call( vargv[0], vargv[1], vargv[2], vargv[3] );
+			case 0: return _thread.call( _env );
+			case 1: return _thread.call( _env, vargv[0] );
+			case 2: return _thread.call( _env, vargv[0], vargv[1] );
+			case 3: return _thread.call( _env, vargv[0], vargv[1], vargv[2] );
+			case 4: return _thread.call( _env, vargv[0], vargv[1], vargv[2], vargv[3] );
 		}
 	}
 
-	function _Process::ThreadSleep( duration ) : (suspend)
+	function _Process::ThreadSleep( duration )
 	{
-		if ( duration > 0.0 )
-		{
-			suspend( VS.EventQueue.AddEvent( ThreadResume, duration, this ) );
-		}
-		else if ( duration == -1 )
-		{
-			suspend();
-		}
+		//if ( duration > 0.0 )
+		//{
+		//	suspend( VS.EventQueue.AddEvent( ThreadResume, duration, this ) );
+		//}
+		//else if ( duration == -1 )
+		//{
+		//	suspend();
+		//}
 	}
 
 	function _Process::ThreadResume()
 	{
-		if ( _thread.getstatus() == "suspended" )
-		{
-			_thread.wakeup();
-		}
+		//if ( _thread.getstatus() == "suspended" )
+		//{
+		//	_thread.wakeup();
+		//}
 	}
 
 	function _Process::ThreadIsSuspended()
 	{
-		return _thread.getstatus() == "suspended";
+		//return _thread.getstatus() == "suspended";
 	}
 }
 
@@ -5931,7 +6073,7 @@ function _Process::StartCompile()
 	return CompilePath();
 }
 
-function _Process::SplineOrigin( i, frac, out ) : ( g_InterpolatorMap )
+function _Process::SplineOrigin( i, frac, out )
 {
 	VS.Interpolator_CurveInterpolate( g_InterpolatorMap[ m_nInterpolatorOrigin ],
 		m_KeyFrames[i-1].origin,
@@ -6436,7 +6578,7 @@ class CUndoTransformKeyframes extends CUndoElement
 // void TransformKeyframes( Vector|null offset, Vector angles )
 // void TransformKeyframes( int pivot, Vector offset, Vector angles )
 //
-function TransformKeyframes( p1 = null, p2 = null, p3 = null ) : (array)
+function TransformKeyframes( p1 = null, p2 = null, p3 = null )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot modify keyframes while compiling!\n");
@@ -6594,7 +6736,7 @@ local ThreadHelper = function( func, param, msg, exp = false )
 }
 
 // kf_smooth_origin
-function SmoothOrigin( r = 4 ) : (ThreadHelper)
+function SmoothOrigin( r = 4 )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot smooth path while compiling!\n");
@@ -6629,7 +6771,7 @@ function SmoothOrigin( r = 4 ) : (ThreadHelper)
 
 // kf_smooth_angles
 // kf_smooth_angles_exp
-function SmoothAngles( exp = 0, r = 10 ) : (ThreadHelper)
+function SmoothAngles( exp = 0, r = 10 )
 {
 	if ( m_bCompiling )
 		return MsgFail("Cannot smooth path while compiling!\n");
@@ -6810,9 +6952,9 @@ function Save( i = null )
 	m_nSaveType = i;
 	m_bSaveInProgress = true;
 
-	VS.Log.file_prefix = "scripts/vscripts/kf_data";
-	VS.Log.export = true;
-	VS.Log.filter = "L ";
+	//VS.Log.file_prefix = "scripts/vscripts/kf_data";
+	//VS.Log.export = true;
+	//VS.Log.filter = "L ";
 
 	Msg( "Saving, please wait...\n" );
 
@@ -6824,7 +6966,7 @@ function _Save::Process()
 {
 	_Process.ThreadSleep( g_FrameTime );
 
-	VS.Log.Clear();
+	//VS.Log.Clear();
 
 	Write();
 	return EndWrite();
@@ -6832,7 +6974,9 @@ function _Save::Process()
 
 function _Save::Write()
 {
-	local Add = VS.Log.Add;
+	local pszSaveData = "";
+
+	local Add = function(s) { pszSaveData += s; } //VS.Log.Add;
 
 	// header ---
 
@@ -6887,7 +7031,8 @@ function _Save::Write()
 	_Process.ThreadSleep( g_FrameTime );
 
 	// strip trailing separator ",\n"
-	Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
+	// Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
+	Add( pszSaveData.slice( 0, -2 ) + "\n\t]" );
 
 	// NOTE: Only lights for now!
 	if ( m_Elements.len() )
@@ -6901,7 +7046,8 @@ function _Save::Write()
 		_Process.ThreadSleep( g_FrameTime );
 
 		// strip trailing separator ",\n"
-		Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
+		// Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
+		Add( pszSaveData.slice( 0, -2 ) + "\n\t]" );
 	}
 
 	// HACKHACK
@@ -6912,10 +7058,25 @@ function _Save::Write()
 
 	// tail ---
 	Add( "\n}\n\0" );
+
+	local filename = "kf_data_" + DoUniqueString("") + ".nut";
+
+	if ( !StringToFile( filename, pszSaveData ) )
+	{
+		Msg("save error\n");
+	}
+	else
+	{
+		Msg("saved to " + filename + "\n");
+	}
+
+	m_bSaveInProgress = false;
 }
 
 function _Save::EndWrite()
 {
+	return;
+
 	VS.Log.Run( function( file )
 	{
 		m_bSaveInProgress = false;
@@ -6943,7 +7104,7 @@ if ( !GetDelegate( m_FileBuffer ) )
 	local root = getroottable();
 	local meta =
 	{
-		_newslot = function( k, v ) : ( root, m_LoadedData )
+		_newslot = function( k, v )
 		{
 			m_LoadedData.rawset( k, v );
 			if ( k in root && root[k] )
@@ -7152,7 +7313,7 @@ local NewFrame = function()
 	}
 }
 
-function _Load::LoadInternal() : ( NewFrame )
+function _Load::LoadInternal()
 {
 	Msg(".");
 

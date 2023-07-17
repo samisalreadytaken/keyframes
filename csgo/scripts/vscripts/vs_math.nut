@@ -86,35 +86,46 @@ if ( !("Vector" in getroottable()) )
 	}
 };
 
+::CONST <- getconsttable();
 
 const FLT_EPSILON		= 1.192092896e-7;;
 const FLT_MAX			= 3.402823466e+38;;
 const FLT_MIN			= 1.175494351e-38;;
 
-// Assert( _intsize_ == 4 );
 const INT_MAX			= 0x7FFFFFFF;;
-const INT_MIN			= 0x80000000;;
+CONST.INT_MIN			<- -0x7FFFFFFF-1;
 
 const DEG2RAD			= 0.017453293;;			// PI / 180 = 0.01745329251994329576
 const RAD2DEG			= 57.295779513;; 		// 180 / PI = 57.29577951308232087679
 const PI				= 3.141592654;;			// 3.14159265358979323846
-const RAND_MAX			= 0x7FFF;;
 const MAX_COORD_FLOAT	= 16384.0;;
 const MAX_TRACE_LENGTH	= 56755.840862417;;	 	// sqrt(3) * 2 * MAX_COORD_FLOAT = 56755.84086241697115430736
 
-::CONST <- getconsttable();
+CONST.RAND_MAX <- ::RAND_MAX;
 ::DEG2RAD <- DEG2RAD;
 ::RAD2DEG <- RAD2DEG;
 ::MAX_COORD_FLOAT <- MAX_COORD_FLOAT;
 ::MAX_TRACE_LENGTH <- MAX_TRACE_LENGTH;
-
 
 const DEG2RADDIV2		= 0.008726646;;
 const RAD2DEG2			= 114.591559026;;
 const PI2				= 6.283185307;;			// 6.28318530717958647692
 const PIDIV2			= 1.570796327;;			// 1.57079632679489661923
 const FLT_MAX_N			= -3.402823466e+38;;
+/*
+if ( _floatsize_ == 8 )
+{
+	CONST.DBL_EPSILON <- 2.2204460492503131e-16;
+	CONST.DBL_MAX <- 1.7976931348623158e+308;
+	CONST.DBL_MIN <- 2.2250738585072014e-308;
+};
 
+if ( _intsize_ == 8 )
+{
+	CONST.LLONG_MAX <- 9223372036854775807;
+	CONST.LLONG_MIN <- -9223372036854775808;
+};
+*/
 delete CONST.DEG2RADDIV2;
 delete CONST.RAD2DEG2;
 delete CONST.PI2;
@@ -578,7 +589,7 @@ function VS::VectorVectors( forward, right, up )
 	}
 	else
 	{
-		local r = forward.Cross( Vector(0.0, 0.0, 1.0) );
+		local r = Vector( forward.y, -forward.x );
 		r.Norm();
 		right.x = r.x; right.y = r.y; right.z = r.z;
 
@@ -645,7 +656,8 @@ function VS::AngleVectors( angle, forward = _VEC, right = null, up = null )
 //-----------------------------------------------------------------------
 function VS::VectorAngles( forward, vOut = _VEC )
 {
-	local yaw = 0.0, pitch = yaw;
+	local yaw = 0.0;
+	local pitch = yaw;
 
 	if ( !forward.y && !forward.x )
 	{
@@ -1447,9 +1459,25 @@ local VectorRotate = VS.VectorRotate;
 // assume in2 is a rotation (QAngle) and rotate the input vector
 function VS::VectorRotateByAngle( in1, in2, out = _VEC )
 {
-	local matRotate = matrix3x4_t();
-	AngleMatrix( in2, null, matRotate );
-	return VectorRotate( in1, matRotate, out );
+	local x = in1.x, y = in1.y, z = in1.z,
+		ay = DEG2RAD*in2.y,
+		ax = DEG2RAD*in2.x,
+		az = DEG2RAD*in2.z;
+
+	local sy = sin(ay), cy = cos(ay),
+		sp = sin(ax), cp = cos(ax),
+		sr = sin(az), cr = cos(az);
+
+	local crcy = cr*cy,
+		crsy = cr*sy,
+		srcy = sr*cy,
+		srsy = sr*sy;
+
+	out.x = x*cp*cy + y*(sp*srcy-crsy) + z*(sp*crcy+srsy);
+	out.y = x*cp*sy + y*(sp*srsy+crcy) + z*(sp*crsy-srcy);
+	out.z = x*-sp + y*sr*cp + z*cr*cp;
+
+	return out;
 }
 
 // assume in2 is a rotation (Quaternion) and rotate the input vector

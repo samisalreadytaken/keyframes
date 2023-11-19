@@ -3,6 +3,12 @@
 
 --------------------------------
 
+2023-11-24 [v1.3.2]
+- External data is now automatically parsed after file load `kf_loadfile` without requiring `kf_load()`
+- Added ability to load and play multiple paths at once using `script kf_play()`
+- Added observer mode to allow spectators to play paths
+- Added `script kf_setplayer()` to be able to change controller player while the script is loaded
+
 2022-09-22 [v1.3.1]
 - Minor bugfixes
 

@@ -5,7 +5,7 @@ Quick smooth camera animation creation.
 
 ![](../assets/image1.jpg)
 
-[ver]: https://img.shields.io/badge/keyframes-v1.3.0-informational
+[ver]: https://img.shields.io/badge/keyframes-v1.3.2-informational
 [![](https://img.shields.io/badge/Video_demonstration-red?logo=youtube)](https://www.youtube.com/watch?v=fefwKjaQsOY)
 
 
@@ -56,6 +56,7 @@ Command                | Description
 `kf_play_loop`         | Play the compiled data looped
 `kf_preview`           | Play the keyframe data without compiling
 `kf_stop`              | Stop playback
+`script kf_play(name)` | Play named path
 `kf_savepath`          | Export the compiled data
 `kf_savekeys`          | Export the keyframe data
 ---                    | ---
@@ -87,11 +88,14 @@ Command                | Description
 `script kf_transform()`| Rotate all keyframes around key with optional translation offset (idx,offset,rotation)
 ---                    | ---
 `kf_loadfile`          | Load data file
-`script kf_load(input)`| Load new data from file
 `script kf_trim(val)`  | Trim compiled animation path to specified length. Specify second param for direction
 `kf_trim_undo`         | Undo last trim action
 ---                    | ---
-`kf_cmd`               | List all commands
+`kf_observeron`        | Turn on observer mode
+`kf_observeroff`       | Turn off observer mode
+`script kf_setplayer(idx)`| Set controller player by index
+---                    | ---
+`kf_help`              | List all commands
 
 Default Key Binds    | Command
 :-------------------:| ------------------------------
@@ -114,6 +118,18 @@ Custom Key Binds     | Command
 `C`                  | `+kf_movedown` (hold to move the camera downwards)
 `V`                  | `+kf_moveup` (hold to move the camera upwards)
 
+### Observer mode
+This is an experimental mode that disables editing and visualises all loaded paths. User is expected to use `script kf_play( "my_path" )` console command to play multiple paths without reloading anything. The second parameter can be set to `1` to enable looping playback `script kf_play( "my_path", 1 )`.
+
+Make sure you are in free roam mode before playing a path. Only `script kf_play()` and `kf_stop` are tested in this mode, other features may be broken.
+
+To be able to load multiple paths, rename the path inside your exported file, and include it in `keyframes_data.nut`.
+
+Set observer player in game using `script kf_setplayer()`, or outside the game in `keyframes_observer.cfg`.
+
+Execute `keyframes_observer.cfg` while in live matches, otherwise use `keyframes.cfg` to be able to edit.
+
+Note that observer playback movement will be stuttery in low timescale.
 
 ### File export
 You can open the exported file (`.log`) with any text editor. You must replace `L ` with blank, i.e. remove, for the data to work.

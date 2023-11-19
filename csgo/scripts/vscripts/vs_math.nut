@@ -7,10 +7,12 @@
 //
 //
 // Run the following regex replacement for SQ3:
-//	(?!function[\s\w\:]*[\(]?.*[\)]?[^\{]+?)\:\s*\(\s*[\s\w,]*\)
-//
-//-----------------------------------------------------------------------
+/*
+(?!\w[\s\w:\/]*)[\s\w\/]*:\s*\([\s\w,]*\)
 
+:%s/\(\w\(\s\|\w\|:\)\{-}(\(\s\|\w\|\n\|,\|=\|-\|\.\)\{-})\)\zs\(\s\|\w\|\n\|\/\)*:\(\s\|\w\|\n\|\/\)*(.\{-})//g
+*/
+//-----------------------------------------------------------------------
 
 if ( !("VS" in getroottable()) )
 	::VS <- { version = "0.0.0" };
@@ -260,11 +262,11 @@ local Quaternion = class
 	}
 }
 
-Quaternion._add <- function(v)  { return Quaternion( x+v.x,y+v.y,z+v.z,w+v.w ) }
-Quaternion._sub <- function(v)  { return Quaternion( x-v.x,y-v.y,z-v.z,w-v.w ) }
-Quaternion._mul <- function(v)  { return Quaternion( x*v,y*v,z*v,w*v ) }
-Quaternion._div <- function(v)  { local f = 1.0/v; return Quaternion( x*f,y*f,z*f,w*f ) }
-Quaternion._unm <- function()  { return Quaternion( -x,-y,-z,-w ) }
+Quaternion._add <- function(v) { return Quaternion( x+v.x,y+v.y,z+v.z,w+v.w ) }
+Quaternion._sub <- function(v) { return Quaternion( x-v.x,y-v.y,z-v.z,w-v.w ) }
+Quaternion._mul <- function(v) { return Quaternion( x*v,y*v,z*v,w*v ) }
+Quaternion._div <- function(v) { local f = 1.0/v; return Quaternion( x*f,y*f,z*f,w*f ) }
+Quaternion._unm <- function() { return Quaternion( -x,-y,-z,-w ) }
 
 
 //
@@ -300,7 +302,7 @@ local CArrayOpMan;
 CArrayOpMan = class
 {
 	[0x7F] = null;
-	constructor(p)  { this[0x7F] = CArrayOpManSub(p); }
+	constructor(p) { this[0x7F] = CArrayOpManSub(p); }
 	function _get(i) { local _ = this[0x7F]; _[0x7E] = 4*i; return _; } // column count : 4
 }
 }
@@ -3357,7 +3359,6 @@ local MatrixBuildRotationAboutAxis = VS.MatrixBuildRotationAboutAxis;
 //          Vector
 //-----------------------------------------------------------------------------
 function VS::MatrixBuildRotation( dst, initialDirection, finalDirection )
-
 {
 	local angle = initialDirection.Dot( finalDirection );
 	// Assert( IsFinite(angle) );
@@ -3489,7 +3490,6 @@ function VS::Vector3DMultiplyPositionProjective( src1, src2, dst )
 // Transforms a AABB into another space; which will inherently grow the box.
 //-----------------------------------------------------------------------------
 function VS::TransformAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxsOut )
-
 {
 	local localCenter = (vecMinsIn + vecMaxsIn) * 0.5;
 	local localExtents = vecMaxsIn - localCenter;
@@ -3518,7 +3518,6 @@ function VS::TransformAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxs
 // Uses the inverse transform of in1
 //-----------------------------------------------------------------------------
 function VS::ITransformAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxsOut )
-
 {
 	local worldCenter = (vecMinsIn + vecMaxsIn) * 0.5;
 	local worldExtents = vecMaxsIn - worldCenter;
@@ -3548,7 +3547,6 @@ function VS::ITransformAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMax
 // (same as TransformAABB, but doesn't take the translation into account)
 //-----------------------------------------------------------------------------
 function VS::RotateAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxsOut )
-
 {
 	local localCenter = (vecMinsIn + vecMaxsIn) * 0.5;
 	local localExtents = vecMaxsIn - localCenter;
@@ -3577,7 +3575,6 @@ function VS::RotateAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxsOut
 // Uses the inverse transform of in1
 //-----------------------------------------------------------------------------
 function VS::IRotateAABB( transform, vecMinsIn, vecMaxsIn, vecMinsOut, vecMaxsOut )
-
 {
 	local oldCenter = (vecMinsIn + vecMaxsIn) * 0.5;
 	local oldExtents = vecMaxsIn - oldCenter;
@@ -3654,7 +3651,6 @@ function VS::MatrixITransformPlane( src, inNormal, inDist, outNormal )
 // 0-------4
 //
 function VS::GetBoxVertices( origin, angles, mins, maxs, pVerts )
-
 {
 	local rotation = matrix3x4_t();
 	AngleMatrix( angles, null, rotation );
@@ -3859,7 +3855,6 @@ function VS::ComputeCameraVariables( vecOrigin, pVecForward, pVecRight, pVecUp, 
 // range [-1,1]
 //
 function VS::WorldToScreenMatrix( pOut, origin, forward, right, up, fov, flAspect, zNear, zFar )
-
 {
 	local viewToProj = VMatrix();
 	local worldToView = VMatrix();
@@ -3898,7 +3893,6 @@ function VS::WorldToScreenMatrix( pOut, origin, forward, right, up, fov, flAspec
 // range [0,1]
 //
 function VS::WorldToScreenMatrix2( pOut, origin, forward, right, up, fov, flAspect, zNear, zFar )
-
 {
 	local view = VMatrix(), proj = VMatrix();
 	MatrixBuildPerspective( proj, fov, flAspect, zNear, zFar );
@@ -4201,7 +4195,6 @@ local initCapsule = function()
 	// Draws a capsule at world origin.
 	//-----------------------------------------------------------------------
 	function VS::DrawCapsule( start, end, radius, r, g, b, z, time )
-
 	{
 		local vecCapsuleCoreNormal = start - end;
 		local vecLen = end - start;
@@ -4566,7 +4559,6 @@ function VS::Interpolator_GetKochanekBartelsParams( interpolationType, tbc )
 }
 
 function VS::Interpolator_CurveInterpolate( interpolationType, vPre, vStart, vEnd, vNext, f, vOut )
-
 {
 	vOut.x = vOut.y = vOut.z = 0.0;
 
@@ -4695,7 +4687,6 @@ function VS::Interpolator_CurveInterpolate( interpolationType, vPre, vStart, vEn
 }
 
 function VS::Interpolator_CurveInterpolate_NonNormalized( interpolationType, vPre, vStart, vEnd, vNext, f, vOut )
-
 {
 	vOut.x = vOut.y = vOut.z = 0.0;
 
@@ -5010,7 +5001,6 @@ local Hermite_Spline3F = VS.Hermite_Spline3F;
 
 // input Quaternion
 function VS::Hermite_Spline3Q( q0, q1, q2, t, output )
-
 {
 	// cheap, hacked version of quaternions
 	local q0a = Quaternion(),
@@ -5115,7 +5105,6 @@ function VS::Kochanek_Bartels_Spline( tension, bias, continuity, p1, p2, p3, p4,
 local Kochanek_Bartels_Spline = VS.Kochanek_Bartels_Spline;
 
 function VS::Kochanek_Bartels_Spline_NormalizeX( tension, bias, continuity, p1, p2, p3, p4, t, output )
-
 {
 	local p1n = Vector(), p4n = Vector();
 	Spline_Normalize( p1, p2, p3, p4, p1n, p4n );
@@ -5942,7 +5931,6 @@ local IsBoxIntersectingRay = VS.IsBoxIntersectingRay;
 // Intersects a ray with an AABB, return true if they intersect
 //-----------------------------------------------------------------------------
 function VS::IsBoxIntersectingRay2( origin, vecBoxMin, vecBoxMax, ray, flTolerance = 0.0 )
-
 {
 	if ( ray.m_IsSwept )
 		return IsBoxIntersectingRay(
@@ -6624,7 +6612,6 @@ function VS::ClipRayToOBB2( ray, matOBBToWorld, vecOBBMins, vecOBBMaxs, flTolera
 // Swept OBB test
 //-----------------------------------------------------------------------------
 function VS::IsRayIntersectingOBB( ray, org, ang, mins, maxs )
-
 {
 	if ( !ang.x && !ang.y && !ang.z )
 		return IsBoxIntersectingRay( org + mins, org + maxs, ray.m_Start, ray.m_Delta );
@@ -6752,7 +6739,6 @@ function VS::IsRayIntersectingOBB( ray, org, ang, mins, maxs )
 // Returns false if no separating plane exists
 //-----------------------------------------------------------------------------
 function VS::ComputeSeparatingPlane( worldToBox1, box2ToWorld, box1Size, box2Size, tolerance, pNormalOut = _VEC )
-
 {
 	// The various separating planes can be either
 	// 1) A plane parallel to one of the box face planes
@@ -7076,7 +7062,6 @@ function VS::ComputeSeparatingPlane( worldToBox1, box2ToWorld, box1Size, box2Siz
 // Returns true if there's an intersection between two OBBs
 //-----------------------------------------------------------------------------
 function VS::IsOBBIntersectingOBB( org1, ang1, min1, max1, org2, ang2, min2, max2, tolerance )
-
 {
 	local worldToBox1 = matrix3x4_t(), box2ToWorld = matrix3x4_t();
 

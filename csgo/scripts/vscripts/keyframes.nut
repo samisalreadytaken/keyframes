@@ -533,15 +533,45 @@ function _PlaySound(s)
 	return player.EmitSound(s);
 }
 
-function _Hint(s)
+if ( "CSGOHUD_VERSION" in CONST )
 {
-	m_hHudHint.__KeyValueFromString( "message", s );
-	return EntFireByHandle( m_hHudHint, "ShowHudHint", "", 0.0, player.self );
-}
+	local event =
+	{
+		userid = 0,
+		hintmessage = null
+	}
 
-function _HideHudHint( t = 0.0 )
+	local DoHideHint = function( player )
+	{
+		event.userid = player.GetUserID();
+		event.hintmessage = null;
+		FireGameEvent( "player_hintmessage", event );
+	}
+
+	function _Hint(s)
+	{
+		event.userid = player.GetUserID();
+		event.hintmessage = s;
+		return FireGameEvent( "player_hintmessage", event );
+	}
+
+	function _HideHudHint( t = 0.0 )
+	{
+		player.SetContextThink( "_HideHudHint"+t, DoHideHint, t );
+	}
+}
+else
 {
-	return EntFireByHandle( m_hHudHint, "HideHudHint", "", t, player.self );
+	function _Hint(s)
+	{
+		m_hHudHint.__KeyValueFromString( "message", s );
+		return EntFireByHandle( m_hHudHint, "ShowHudHint", "", 0.0, player.self );
+	}
+
+	function _HideHudHint( t = 0.0 )
+	{
+		return EntFireByHandle( m_hHudHint, "HideHudHint", "", t, player.self );
+	}
 }
 
 PlaySound <- dummy;

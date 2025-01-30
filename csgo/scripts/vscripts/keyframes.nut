@@ -2488,6 +2488,7 @@ function Manipulator_DrawPlane( vecOrigin, vecAxis, vecHorz, vecVert, r, g, b, f
 		{
 			m_Transform = matrix3x4_t();
 			m_hEntity = hEntity;
+			VS.AngleMatrix( hEntity.GetAbsAngles(), hEntity.GetAbsOrigin(), m_Transform );
 		}
 
 		function SetPosition( newPosition )
@@ -2962,6 +2963,9 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 			}
 			else if ( m_nManipulatorMode == KF_TRANSFORM_TRANSLATE )
 			{
+				local originToViewNorm = originToView * 1;
+				originToViewNorm.Norm();
+
 				// Draw transform origin
 				if ( vecTransformPivot )
 				{
@@ -3027,7 +3031,18 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisUp, 255, 255, 0, flScaleX1, flScaleX2, 'z' );
-					DrawGrid( vecOrigin, vecAxisLeft, vecAxisUp );
+
+					local d1 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisForward ) );
+
+					if ( d1 < d2 )
+					{
+						DrawGrid( vecOrigin, vecAxisLeft, vecAxisUp );
+					}
+					else
+					{
+						DrawGrid( vecOrigin, vecAxisForward, vecAxisUp );
+					}
 				}
 				else
 				{
@@ -3062,7 +3077,18 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisLeft, 255, 255, 0, flScaleX1, flScaleX2, 'y' );
-					DrawGrid( vecOrigin, vecAxisLeft, vecAxisUp );
+
+					local d1 = fabs( originToViewNorm.Dot( vecAxisForward ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisUp ) );
+
+					if ( d1 < d2 )
+					{
+						DrawGrid( vecOrigin, vecAxisForward, vecAxisLeft );
+					}
+					else
+					{
+						DrawGrid( vecOrigin, vecAxisUp, vecAxisLeft );
+					}
 				}
 				else
 				{
@@ -3097,7 +3123,18 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisForward, 255, 255, 0, flScaleX1, flScaleX2, 'x' );
-					DrawGrid( vecOrigin, vecAxisForward, vecAxisUp );
+
+					local d1 = fabs( originToViewNorm.Dot( vecAxisUp ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
+
+					if ( d1 < d2 )
+					{
+						DrawGrid( vecOrigin, vecAxisUp, vecAxisForward );
+					}
+					else
+					{
+						DrawGrid( vecOrigin, vecAxisLeft, vecAxisForward );
+					}
 				}
 				else
 				{
@@ -3746,7 +3783,8 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 		local tr = VS.TraceLine( viewOrigin, viewOrigin + rayDelta, player.self, MASK_SOLID );
 
 		// Stick out of the wall
-		local endpos = VS.VectorMA( tr.GetPos(), 1.0, tr.GetNormal() );
+		local endpos = tr.GetPos();
+		VS.VectorMA( endpos, 1.0, tr.GetNormal(), endpos );
 
 		// Use the trace end if it landed inside the world
 		if ( IsValidCoord( endpos.x ) && IsValidCoord( endpos.y ) && IsValidCoord( endpos.z ) )

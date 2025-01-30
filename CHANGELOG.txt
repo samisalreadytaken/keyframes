@@ -3,6 +3,10 @@
 
 --------------------------------
 
+2025-02-15 [v1.3.3]
+- Fixed manipulator translation grid orientation
+- Fixed axis draw on manipulator snap translation
+
 2023-11-24 [v1.3.2]
 - External data is now automatically parsed after file load `kf_loadfile` without requiring `kf_load()`
 - Added ability to load and play multiple paths at once using `script kf_play()`

@@ -15,7 +15,7 @@
 //-----------------------------------------------------------------------
 
 if ( !("VS" in getroottable()) )
-	::VS <- { version = "0.0.0" };
+	::VS <- { version = "2.43.31" };
 
 if ( "VectorRotate" in VS )
 	return;
@@ -1088,13 +1088,18 @@ function VS::RandomVector( minVal = -RAND_MAX, maxVal = RAND_MAX )
 	return Vector( RandomFloat( minVal, maxVal ), RandomFloat( minVal, maxVal ), RandomFloat( minVal, maxVal ) );
 }
 
+{
+// RAND_MAX differs between linux and windows
+local ONEDIVRANDMAX = 1.0 / RAND_MAX,
+	TWODIVRANDMAX = 2.0 / RAND_MAX,
+	TWOPIDIVRANDMAX = ( 2.0 / RAND_MAX ) * PI;
+
 // Guarantee uniform random distribution within a sphere
 function VS::RandomVectorInUnitSphere( out )
 {
-	// local rd = 2.0 / RAND_MAX; // 0.00006103702
-	local phi = acos( 1.0 - rand() * 0.00006103702 );
-	local theta = rand() * 0.00019175345; // rd * PI
-	local r = pow( rand() * 0.00003051851, 0.333333 );
+	local phi = acos( 1.0 - rand() * TWODIVRANDMAX );
+	local theta = rand() * TWOPIDIVRANDMAX;
+	local r = pow( rand() * ONEDIVRANDMAX, 0.333333 );
 	local sp = sin( phi ) * r;
 
 	//if ( !out )
@@ -1109,9 +1114,8 @@ function VS::RandomVectorInUnitSphere( out )
 // Guarantee uniform random distribution on a sphere
 function VS::RandomVectorOnUnitSphere( out )
 {
-	// local rd = 2.0 / RAND_MAX; // 0.00006103702
-	local phi = acos( 1.0 - rand() * 0.00006103702 );
-	local theta = rand() * 0.00019175345; // rd * PI
+	local phi = acos( 1.0 - rand() * TWODIVRANDMAX );
+	local theta = rand() * TWOPIDIVRANDMAX;
 	// r = 1
 	local sp = sin( phi );
 
@@ -1121,6 +1125,7 @@ function VS::RandomVectorOnUnitSphere( out )
 	out.x = cos( theta ) * sp;
 	out.y = sin( theta ) * sp;
 	out.z = cos( phi );
+}
 }
 
 // decayTo is factor the value should decay to in decayTime
@@ -6232,12 +6237,12 @@ function VS::ClipRayToOBB( vecRayStart, vecRayDelta, matOBBToWorld,
 	// Assert( flTolerance == 0.0 );
 
 	// OPTIMIZE: Store this in the box instead of computing it here
+
 	// compute center in local space
 	local vecBoxExtents = (vecOBBMins + vecOBBMaxs) * 0.5;
-	local vecBoxCenter = Vector();
 
 	// transform to world space
-	VectorTransform( vecBoxExtents, matOBBToWorld, vecBoxCenter );
+	local vecBoxCenter = VectorTransform( vecBoxExtents, matOBBToWorld );
 
 	// calc extents from local center
 	vecBoxExtents = vecOBBMaxs - vecBoxExtents;
@@ -6387,13 +6392,11 @@ function VS::ClipRayToOBB2( ray, matOBBToWorld, vecOBBMins, vecOBBMaxs, flTolera
 {
 	// Compute a bounding sphere around the bloated OBB
 	local vecOBBCenter = (vecOBBMins + vecOBBMaxs) * 0.5;
-	vecOBBCenter.x += matOBBToWorld[0][M_03];
-	vecOBBCenter.y += matOBBToWorld[0][M_13];
-	vecOBBCenter.z += matOBBToWorld[0][M_23];
+	VectorTransform( vecOBBCenter, matOBBToWorld, vecOBBCenter );
 
 	local vecOBBHalfDiagonal = (vecOBBMaxs - vecOBBMins) * 0.5;
-
 	local flRadius = vecOBBHalfDiagonal.Length() + ray.m_Extents.Length();
+
 	if ( !IsRayIntersectingSphere( ray.m_Start, ray.m_Delta, vecOBBCenter, flRadius, flTolerance ) )
 		return false;
 }
@@ -6571,17 +6574,17 @@ function VS::ClipRayToOBB2( ray, matOBBToWorld, vecOBBMins, vecOBBMaxs, flTolera
 
 		// Need to transform the plane into world space...
 		local pNormal = pPlaneNormal[hitplane];
-		local normal, dist;
+		local normal;
 
 		if ( hitside == 0 )
 		{
 			normal = Vector( -pNormal[0], -pNormal[1], -pNormal[2] );
-			dist = -ppPlaneDist[hitplane][hitside];
+			//dist = -ppPlaneDist[hitplane][hitside];
 		}
 		else
 		{
 			normal = Vector( pNormal[0], pNormal[1], pNormal[2] );
-			dist = ppPlaneDist[hitplane][hitside];
+			//dist = ppPlaneDist[hitplane][hitside];
 		};
 
 		local worldNormal = Vector();
@@ -6698,14 +6701,12 @@ function VS::IsRayIntersectingOBB( ray, org, ang, mins, maxs )
 	// Therefore all we need to do is project the ray extents onto this line also:
 	// AbsDot( ray.m_Extents, l1 ) = abs( -dz * ray.m_Extents.y ) + abs( dy * ray.m_Extents.z )
 
-	local vecPlaneNormal, flBoxProjectionSum, flCenterDeltaProjection;
-
 	// box x x ray delta
-	vecPlaneNormal = vecRayDirection.Cross( Vector( box2ToWorld[M_00], box2ToWorld[M_10], box2ToWorld[M_20] ) );
-	flCenterDeltaProjection = vecPlaneNormal.Dot(vecCenterDelta);
+	local vecPlaneNormal = vecRayDirection.Cross( Vector( box2ToWorld[M_00], box2ToWorld[M_10], box2ToWorld[M_20] ) );
+	local flCenterDeltaProjection = vecPlaneNormal.Dot(vecCenterDelta);
 	if ( 0.0 > flCenterDeltaProjection )
 		flCenterDeltaProjection = -flCenterDeltaProjection;
-	flBoxProjectionSum =
+	local flBoxProjectionSum =
 		vecAbsRayDirBox2.z * box2Size.y + vecAbsRayDirBox2.y * box2Size.z +
 		DotProductAbs( vecPlaneNormal, ray.m_Extents );
 	if ( flCenterDeltaProjection > flBoxProjectionSum )
@@ -6773,15 +6774,13 @@ function VS::ComputeSeparatingPlane( worldToBox1, box2ToWorld, box1Size, box2Siz
 	// onto the line, and add them up. We compare the sum with the projection
 	// of the relative center of box2 onto the same line.
 
-	local boxProjectionSum, originProjection;
-
 	// NOTE: For these guys, we're taking advantage of the fact that the ith
 	// row of the box2ToBox1 is the direction of the box1 (x,y,z)-axis
 	// transformed into the space of box2.
 
 	// First side of box 1
-	boxProjectionSum = MatrixRowDotProduct( absBox2ToBox1, 0, box2Size ) + box1Size.x;
-	originProjection = fabs( box2Origin.x ) + tolerance;
+	local boxProjectionSum = MatrixRowDotProduct( absBox2ToBox1, 0, box2Size ) + box1Size.x;
+	local originProjection = fabs( box2Origin.x ) + tolerance;
 	if ( originProjection > boxProjectionSum )
 	{
 		pNormalOut.x = worldToBox1[M_00];

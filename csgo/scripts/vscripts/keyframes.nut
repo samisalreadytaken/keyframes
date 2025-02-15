@@ -14,8 +14,8 @@ local VERSION = "1.3.2";
 // - Replacing CBaseEntity::SetAngles() with SetEntityAngles() (mapbase takes Vector, CSGO takes x,y,z)
 // - Replacing timer entity "nextthink" toggle with CBaseEntity::AcceptInput() (to suppress debug build assertions)
 // - Removal of m_bDuckFixup (HL2 player view does not change while in noclip and crouched)
-// - Change to kViewOffset and kCrouchViewOffset (HL2 offsets differ from CSGO)
-// - Replacing IsDucking() hull size check with +duck command hook (button check is not good beacuse it's often not cancelled while in noclip)
+// - Change to kViewOffset (HL2 offsets differ from CSGO)
+// - Replacing IsDucking() hull size check with +duck command hook and remove kCrouchViewOffset (button check is not good beacuse it's often not cancelled while in noclip)
 // - Removal of 'threaded' funcs - letting the game freeze during compilation
 // - Minor changes to _Save::Write() to support save/load
 //
@@ -78,7 +78,6 @@ local VERSION = "1.3.2";
 			local tr = TraceLineComplex( start, end, ent, mask, 0 );
 			endpos = tr.EndPos();
 			normal = tr.Plane().normal;
-			tr.Destroy();
 		}
 		function GetPos() { return endpos; }
 		function GetNormal() { return normal; }
@@ -221,7 +220,7 @@ const KF_INTERP_COUNT				= 8;;
 
 
 const kViewOffset = 64.0;
-const kCrouchViewOffset = 32.0;
+const kCrouchViewOffset = 64.0;
 
 if ( !("vec3_origin" in this) || !VS.VectorIsZero(vec3_origin) )
 {
@@ -648,7 +647,7 @@ function MainViewOrigin()
 	// Using GetAbsOrigin instead of EyePosition to reliably get the actual player position while in-camera view.
 	local viewOrigin = player.GetOrigin();
 
-	if ( IsDucking() )
+	if ( 0 && IsDucking() )
 	{
 		viewOrigin.z += kCrouchViewOffset;
 	}
@@ -7097,20 +7096,20 @@ function SaveProcess()
 
 	SaveWrite();
 
-	VS.Log.Run( function( file )
-	{
+	//VS.Log.Run( function( file )
+	//{
 		m_bSaveInProgress = false;
 		PlaySound( SND_EXPORT_SUCCESS );
 
 		if ( m_nSaveType == KF_DATA_TYPE_PATH )
 		{
-			Msg(Fmt( "Exported animation data: /csgo/%s.log\n\n", file ));
+			//Msg(Fmt( "Exported animation data: /csgo/%s.log\n\n", file ));
 		}
 		else if ( m_nSaveType == KF_DATA_TYPE_KEYFRAMES )
 		{
-			Msg(Fmt( "Exported keyframe data: /csgo/%s.log\n\n", file ));
+			//Msg(Fmt( "Exported keyframe data: /csgo/%s.log\n\n", file ));
 		}
-	}, this );
+	//}, this );
 }
 
 function SaveWrite()

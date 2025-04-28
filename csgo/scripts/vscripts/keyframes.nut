@@ -17,7 +17,7 @@ local VERSION = "1.3.4";
 // - Change to kViewOffset (HL2 offsets differ from CSGO)
 // - Replacing IsDucking() hull size check with +duck command hook and remove kCrouchViewOffset (button check is not good beacuse it's often not cancelled while in noclip)
 // - Removal of 'threaded' funcs - letting the game freeze during compilation
-// - Minor changes to _Save::Write() to support save/load
+// - Minor changes to SaveWrite() to support save
 //
 
 	IncludeScript("vs_math");
@@ -38,6 +38,11 @@ local VERSION = "1.3.4";
 	function SetEntityAngles( p, v )
 	{
 		return p.SetAngles( v );
+	}
+
+	function VS::GetCaller()
+	{
+		return getstackinfos(3).locals["this"];
 	}
 
 	VS.EventQueue <-
@@ -139,7 +144,6 @@ local VERSION = "1.3.4";
 		return s_ExtendedPlayer;
 	}
 
-	ToExtendedPlayer <- VS.ToExtendedPlayer;
 	VS.GetPlayerByIndex <- EntIndexToHScript;
 
 	// default binds
@@ -177,7 +181,7 @@ local _ = function(){
 
 function SetDelegate( _this, _that )
 {
-	return _this.setdelegate(_that);
+	return _that.setdelegate(_this);
 }
 
 function GetDelegate( _this )
@@ -6100,52 +6104,79 @@ function Compile()
 // Can be called inside the thread:
 //	ThreadSleep( <duration> );
 //
+if ( ( "MAPBASE_VER_INT" in getconsttable() ) && MAPBASE_VER_INT > 7300 )
 {
 	_thread <- null;
-	_env <- null;
 
 	function CreateThread( func, env = null )
 	{
-		_thread = func;
-		_env = env;
+		if ( _thread && (_thread.getstatus() != "idle") )
+			Assert( 0, "Tried to create a thread while one was already running" );
+
+		_thread = newthread( func.bindenv( env ? env : VS.GetCaller() ) );
 	}
 
 	function StartThread( ... )
 	{
 		switch ( vargv.len() )
 		{
-			case 0: return _thread.call( _env );
-			case 1: return _thread.call( _env, vargv[0] );
-			case 2: return _thread.call( _env, vargv[0], vargv[1] );
-			case 3: return _thread.call( _env, vargv[0], vargv[1], vargv[2] );
-			case 4: return _thread.call( _env, vargv[0], vargv[1], vargv[2], vargv[3] );
+			case 0: return _thread.call();
+			case 1: return _thread.call( vargv[0] );
+			case 2: return _thread.call( vargv[0], vargv[1] );
+			case 3: return _thread.call( vargv[0], vargv[1], vargv[2] );
+			case 4: return _thread.call( vargv[0], vargv[1], vargv[2], vargv[3] );
 		}
 	}
 
 	function ThreadSleep( duration )
 	{
-		//if ( duration > 0.0 )
-		//{
-		//	suspend( VS.EventQueue.AddEvent( ThreadResume, duration, this ) );
-		//}
-		//else if ( duration == -1 )
-		//{
-		//	suspend();
-		//}
+		if ( duration > 0.0 )
+		{
+			suspend( VS.EventQueue.AddEvent( ThreadResume, duration, this ) );
+		}
+		else if ( duration == -1 )
+		{
+			suspend();
+		}
 	}
 
 	function ThreadResume()
 	{
-		//if ( _thread.getstatus() == "suspended" )
-		//{
-		//	_thread.wakeup();
-		//}
+		if ( _thread.getstatus() == "suspended" )
+		{
+			_thread.wakeup();
+		}
 	}
 
 	function ThreadIsSuspended()
 	{
-		//return _thread.getstatus() == "suspended";
+		return _thread.getstatus() == "suspended";
 	}
+}
+else
+{
+	_thread <- null;
+
+	function CreateThread( func, env = null )
+	{
+		_thread = func.bindenv( env ? env : VS.GetCaller() );
+	}
+
+	function StartThread( ... )
+	{
+		switch ( vargv.len() )
+		{
+			case 0: return _thread.call( null );
+			case 1: return _thread.call( null, vargv[0] );
+			case 2: return _thread.call( null, vargv[0], vargv[1] );
+			case 3: return _thread.call( null, vargv[0], vargv[1], vargv[2] );
+			case 4: return _thread.call( null, vargv[0], vargv[1], vargv[2], vargv[3] );
+		}
+	}
+
+	ThreadSleep <-
+	ThreadResume <-
+	ThreadIsSuspended <- dummy;
 }
 
 
@@ -7095,10 +7126,6 @@ function Save( i = null )
 	m_nSaveType = i;
 	m_bSaveInProgress = true;
 
-	//VS.Log.file_prefix = "scripts/vscripts/kf_data";
-	//VS.Log.export = true;
-	//VS.Log.filter = "L ";
-
 	Msg( "Saving, please wait...\n" );
 
 	CreateThread( SaveProcess, this );
@@ -7108,34 +7135,15 @@ function Save( i = null )
 function SaveProcess()
 {
 	ThreadSleep( g_FrameTime );
-
-	//VS.Log.Clear();
-
-	ThreadSleep( g_FrameTime );
-
 	SaveWrite();
-
-	//VS.Log.Run( function( file )
-	//{
-		m_bSaveInProgress = false;
-		PlaySound( SND_EXPORT_SUCCESS );
-
-		if ( m_nSaveType == KF_DATA_TYPE_PATH )
-		{
-			//Msg(Fmt( "Exported animation data: /csgo/%s.log\n\n", file ));
-		}
-		else if ( m_nSaveType == KF_DATA_TYPE_KEYFRAMES )
-		{
-			//Msg(Fmt( "Exported keyframe data: /csgo/%s.log\n\n", file ));
-		}
-	//}, this );
+	m_bSaveInProgress = false;
 }
 
 function SaveWrite()
 {
 	local pszSaveData = "";
 
-	local Add = function(s) { pszSaveData += s; } //VS.Log.Add;
+	local Add = function(s) { pszSaveData += s; }
 
 	// header ---
 
@@ -7190,8 +7198,7 @@ function SaveWrite()
 	ThreadSleep( g_FrameTime );
 
 	// strip trailing separator ",\n"
-	// Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
-	Add( pszSaveData.slice( 0, -2 ) + "\n\t]" );
+	pszSaveData = pszSaveData.slice( 0, -2 ) + "\n\t]";
 
 	// NOTE: Only lights for now!
 	if ( m_Elements.len() )
@@ -7205,8 +7212,7 @@ function SaveWrite()
 		ThreadSleep( g_FrameTime );
 
 		// strip trailing separator ",\n"
-		// Add( VS.Log.Pop().slice( 0, -2 ) + "\n\t]" );
-		Add( pszSaveData.slice( 0, -2 ) + "\n\t]" );
+		pszSaveData = pszSaveData.slice( 0, -2 ) + "\n\t]";
 	}
 
 	// HACKHACK
@@ -7228,8 +7234,6 @@ function SaveWrite()
 	{
 		Msg("saved to " + filename + "\n");
 	}
-
-	m_bSaveInProgress = false;
 }
 
 

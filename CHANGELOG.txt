@@ -3,6 +3,11 @@
 
 --------------------------------
 
+2025-04-28 [v1.3.4]
+- Fixed manipulator translation handling orientation
+- Made manipulator grid static
+- `kf_play` plays the only loaded path if no keyframes were compiled in that session
+
 2025-02-15 [v1.3.3]
 - Fixed manipulator translation grid orientation
 - Fixed axis draw on manipulator snap translation

@@ -2,7 +2,7 @@
 //------------------- Copyright (c) samisalreadytaken -------------------
 //                       github.com/samisalreadytaken
 //-----------------------------------------------------------------------
-local VERSION = "1.3.2";
+local VERSION = "1.3.4";
 
 IncludeScript("vs_library");
 
@@ -646,12 +646,12 @@ class keyframe_t //extends frame_t
 		if ( val )
 		{
 			fov = val.tointeger();
-			_fovx = VS.CalcFovX( fov.tofloat(), 16./9. * 0.75 );
+			_fovx = VS.CalcFovX( fov.tofloat(), 1.333333 ); // ( 16 / 9 ) / ( 4 / 3 )
 		}
 		else
 		{
 			fov = null;
-			_fovx = VS.CalcFovX( 90.0, 16./9. * 0.75 );
+			_fovx = VS.CalcFovX( 90.0, 1.333333 );
 		}
 	}
 
@@ -2126,16 +2126,27 @@ local vPlaneMax = Vector();
 local vRectMin = Vector();
 local vRectMax = Vector();
 
-function DrawGrid( pos, right, up )
+function DrawGrid( pos, right, up, forward )
 {
-	// TODO: snap to grid
 	local scale = 32.0;
+	local invScale = 0.03125;
 	local count = 8;
 	local size = scale * count;
 
+	local ofsR = m_vecLastKeyOrigin.Dot( right );
+	local ofsU = m_vecLastKeyOrigin.Dot( up );
+	ofsR = ofsR - ( ofsR * invScale ).tointeger() * scale;
+	ofsU = ofsU - ( ofsU * invScale ).tointeger() * scale;
+
+	local dr = ( pos.Dot( right ) * invScale ).tointeger() * scale + ofsR;
+	local du = ( pos.Dot( up ) * invScale ).tointeger() * scale + ofsU;
+	local df = pos.Dot( forward );
+
+	pos = right * dr + up * du + forward * df;
+
 	local offset = right * size;
 
-	for ( local i = -count; i <= count; ++i )
+	for ( local i = -count + 1; i < count; ++i )
 	{
 		local v0 = pos + up * (i * scale);
 		DrawLine( v0+offset, v0-offset, 128, 128, 128, true, -1 );
@@ -2143,7 +2154,7 @@ function DrawGrid( pos, right, up )
 
 	offset = up * size;
 
-	for ( local i = -count; i <= count; ++i )
+	for ( local i = -count + 1; i < count; ++i )
 	{
 		local v0 = pos + right * (i * scale);
 		DrawLine( v0+offset, v0-offset, 128, 128, 128, true, -1 );
@@ -2992,7 +3003,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					// Draw screen plane
 					local vecLastRight = Vector(), vecLastUp = Vector();
 					VS.VectorVectors( m_vecLastForward, vecLastRight, vecLastUp );
-					DrawGrid( vecOrigin, vecLastRight, vecLastUp );
+					DrawGrid( vecOrigin, vecLastRight, vecLastUp, m_vecLastForward );
 				}
 				else
 				{
@@ -3004,7 +3015,14 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 				//
 				if ( nSelection & KF_TRANSFORM_PLANE_Z )
 				{
-					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecAxisForward, 0.0 );
+					local d1 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisForward ) );
+					local vecNorm = vecAxisLeft;
+
+					if ( d1 < d2 )
+						vecNorm = vecAxisForward;
+
+					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecNorm, 0.0 );
 					vecCursor = viewOrigin + rayDelta * t;
 
 					local vecTranslation = vecCursor - m_vecTranslationOffset - vecOrigin;
@@ -3024,24 +3042,17 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					if ( vecTransformPivot )
 						VS.VectorAdd( vecTransformPivot, vecTranslation, vecTransformPivot );
 
-					// Not updating the gizmo origin will delay the correct drawing 1 frame, and that's fine.
-					//if ( vecTransformPivot )
-					//	VS.VectorAdd( vecPosition, vecTransformOffset, vecOrigin );
-
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisUp, 255, 255, 0, flScaleX1, flScaleX2, 'z' );
 
-					local d1 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
-					local d2 = fabs( originToViewNorm.Dot( vecAxisForward ) );
-
 					if ( d1 < d2 )
 					{
-						DrawGrid( vecOrigin, vecAxisLeft, vecAxisUp );
+						DrawGrid( vecOrigin, vecAxisLeft, vecAxisUp, vecAxisForward );
 					}
 					else
 					{
-						DrawGrid( vecOrigin, vecAxisForward, vecAxisUp );
+						DrawGrid( vecOrigin, vecAxisForward, vecAxisUp, vecAxisLeft );
 					}
 				}
 				else
@@ -3054,7 +3065,14 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 				//
 				if ( nSelection & KF_TRANSFORM_PLANE_Y )
 				{
-					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecAxisForward, 0.0 );
+					local d1 = fabs( originToViewNorm.Dot( vecAxisForward ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisUp ) );
+					local vecNorm = vecAxisForward;
+
+					if ( d1 < d2 )
+						vecNorm = vecAxisUp;
+
+					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecNorm, 0.0 );
 					vecCursor = viewOrigin + rayDelta * t;
 
 					local vecTranslation = vecCursor - m_vecTranslationOffset - vecOrigin;
@@ -3078,16 +3096,13 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisLeft, 255, 255, 0, flScaleX1, flScaleX2, 'y' );
 
-					local d1 = fabs( originToViewNorm.Dot( vecAxisForward ) );
-					local d2 = fabs( originToViewNorm.Dot( vecAxisUp ) );
-
 					if ( d1 < d2 )
 					{
-						DrawGrid( vecOrigin, vecAxisForward, vecAxisLeft );
+						DrawGrid( vecOrigin, vecAxisForward, vecAxisLeft, vecAxisUp );
 					}
 					else
 					{
-						DrawGrid( vecOrigin, vecAxisUp, vecAxisLeft );
+						DrawGrid( vecOrigin, vecAxisUp, vecAxisLeft, vecAxisForward );
 					}
 				}
 				else
@@ -3100,7 +3115,14 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 				//
 				if ( nSelection & KF_TRANSFORM_PLANE_X )
 				{
-					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecAxisLeft, 0.0 );
+					local d1 = fabs( originToViewNorm.Dot( vecAxisUp ) );
+					local d2 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
+					local vecNorm = vecAxisUp;
+
+					if ( d1 < d2 )
+						vecNorm = vecAxisLeft;
+
+					local t = VS.IntersectRayWithPlane( originToView, rayDelta, vecNorm, 0.0 );
 					vecCursor = viewOrigin + rayDelta * t;
 
 					local vecTranslation = vecCursor - m_vecTranslationOffset - vecOrigin;
@@ -3124,16 +3146,13 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 
 					Manipulator_DrawAxis( vecOrigin, vecAxisForward, 255, 255, 0, flScaleX1, flScaleX2, 'x' );
 
-					local d1 = fabs( originToViewNorm.Dot( vecAxisUp ) );
-					local d2 = fabs( originToViewNorm.Dot( vecAxisLeft ) );
-
 					if ( d1 < d2 )
 					{
-						DrawGrid( vecOrigin, vecAxisUp, vecAxisForward );
+						DrawGrid( vecOrigin, vecAxisUp, vecAxisForward, vecAxisLeft );
 					}
 					else
 					{
-						DrawGrid( vecOrigin, vecAxisLeft, vecAxisForward );
+						DrawGrid( vecOrigin, vecAxisLeft, vecAxisForward, vecAxisUp );
 					}
 				}
 				else
@@ -3168,7 +3187,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawPlane( vecOrigin, vecAxisUp, vecAxisLeft, vecAxisForward, 255, 255, 0, flScaleXY1, flScaleXY2, 'z' );
-					DrawGrid( vecOrigin, vecAxisForward, vecAxisLeft );
+					DrawGrid( vecOrigin, vecAxisForward, vecAxisLeft, vecAxisUp );
 				}
 				else
 				{
@@ -3202,7 +3221,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawPlane( vecOrigin, vecAxisForward, vecAxisUp, vecAxisLeft, 255, 255, 0, flScaleXY1, flScaleXY2, 'x' );
-					DrawGrid( vecOrigin, vecAxisUp, vecAxisLeft );
+					DrawGrid( vecOrigin, vecAxisUp, vecAxisLeft, vecAxisForward );
 				}
 				else
 				{
@@ -3236,7 +3255,7 @@ function ManipulatorThink( element, viewOrigin, viewForward, viewAngles ) : ( vA
 					element.SetPosition( vecPosition );
 
 					Manipulator_DrawPlane( vecOrigin, vecAxisLeft, vecAxisForward, vecAxisUp, 255, 255, 0, flScaleXY1, flScaleXY2, 'y' );
-					DrawGrid( vecOrigin, vecAxisUp, vecAxisForward );
+					DrawGrid( vecOrigin, vecAxisUp, vecAxisForward, vecAxisLeft );
 				}
 				else
 				{
@@ -7082,12 +7101,6 @@ function LoadFileData()
 
 	m_LoadedData.clear();
 
-	if ( m_PathData && m_PathData.len() )
-	{
-		Msg( "Overwriting existing path\n" );
-	}
-
-	m_PathData = "";
 	m_bLoadInProgress = false;
 	return SetEditModeTemp( m_bInEditMode );
 }
@@ -7565,8 +7578,25 @@ function Play( type = KF_PLAY_DEFAULT )
 	if ( m_bSeeing )
 		SeeKeyframe(1);
 
-	if ( ((type == KF_PLAY_DEFAULT) || (type == KF_PLAY_LOOP)) && !m_PathData.len() )
-		return MsgFail("No compiled data found.\n");
+	if ( ( type == KF_PLAY_DEFAULT || type == KF_PLAY_LOOP ) && !m_PathData.len() )
+	{
+		if ( m_PathList.len() == 1 )
+		{
+			foreach ( k, v in m_PathList )
+			{
+				m_PathData = v.frames.weakref();
+				Msg(Fmt("Loaded '%s'\n", k));
+			}
+		}
+		else if ( m_PathList.len() > 1 )
+		{
+			return MsgFail("No compiled data found, did you mean to play named path?\n");
+		}
+		else
+		{
+			return MsgFail("No compiled data found.\n");
+		}
+	}
 
 	if ( (type == KF_PLAY_PREVIEW) && !m_KeyFrames.len() )
 		return MsgFail("No keyframe data found.\n");
@@ -8124,7 +8154,7 @@ function SetPlayer( i )
 		return;
 	}
 
-	local pl = ToExtendedPlayer( VS.GetPlayerByIndex( i ) );
+	local pl = VS.ToExtendedPlayer( VS.GetPlayerByIndex( i ) );
 	if ( !pl )
 	{
 		print(Fmt( "ERROR: Player (%i) is not found!\n", i ));
